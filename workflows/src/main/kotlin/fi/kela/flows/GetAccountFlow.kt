@@ -3,10 +3,7 @@ package fi.kela.flows
 import fi.kela.states.AccountState
 import fi.kela.states.Balance
 import fi.kela.states.Tag
-import net.corda.v5.application.flows.ClientRequestBody
-import net.corda.v5.application.flows.ClientStartableFlow
-import net.corda.v5.application.flows.CordaInject
-import net.corda.v5.application.flows.SubFlow
+import net.corda.v5.application.flows.*
 import net.corda.v5.application.marshalling.JsonMarshallingService
 import net.corda.v5.base.annotations.Suspendable
 import net.corda.v5.base.exceptions.CordaRuntimeException
@@ -35,10 +32,14 @@ class GetAccountFlow : ClientStartableFlow {
     @CordaInject
     lateinit var ledgerService: UtxoLedgerService
 
+    @CordaInject
+    lateinit var flowEngine: FlowEngine
+
     @Suspendable
     override fun call(requestBody: ClientRequestBody):String{
         val flowArgs: GetAccountRequest = requestBody.getRequestBodyAs(jsonMarshallingService, GetAccountRequest::class.java)
         val states = ledgerService.findUnconsumedStatesByType(AccountState::class.java)
+        val balances = flowEngine.subFlow()
         val results = states.map {
             AccountResult(
                 it.state.contractState.id,

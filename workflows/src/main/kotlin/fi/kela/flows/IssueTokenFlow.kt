@@ -16,7 +16,6 @@ import net.corda.v5.base.types.MemberX500Name
 import net.corda.v5.crypto.DigestAlgorithmName
 import net.corda.v5.crypto.SecureHash
 import net.corda.v5.ledger.common.NotaryLookup
-import net.corda.v5.ledger.common.Party
 import net.corda.v5.ledger.utxo.UtxoLedgerService
 import net.corda.v5.ledger.utxo.token.selection.TokenSelection
 import net.corda.v5.ledger.utxo.transaction.UtxoSignedTransaction
@@ -79,12 +78,13 @@ class IssueTokenFlow : SubFlow<String> {
             val mintToken = Token(
                 currency = "EUR",
                 value= BigDecimal.valueOf(1),
+                nominalValue = BigDecimal.valueOf(1),
                 symbol= "HNT",
                 issuer = issuer.name.toSecureHash(),
                 participants = listOf(issuer.ledgerKeys.first())
             );
-            val issuance: UtxoTransactionBuilder = ledgerService.transactionBuilder
-                .setNotary(Party(notary.name, notary.publicKey))
+            val issuance: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
+                .setNotary(notary.name)
                 //.addOutputStates(List(100) { mintToken })
                 .addOutputStates(mintToken)
                 .addCommand(TokenContract.Issue())
@@ -139,7 +139,7 @@ class FinalizeTokenIssueSubFlow(private val signedTransaction: UtxoSignedTransac
                 sessions
             )
             // Returns the transaction id converted to a string.
-            finalizedSignedTransaction.id.toString().also {
+            finalizedSignedTransaction.transaction.id.toString().also {
                 log.info("Success! Response: $it")
             }
         }
@@ -196,7 +196,7 @@ class FinalizeTokenIssueSubResponderFlow :  ResponderFlow {
 
                 log.info("Verified the transaction- ${ledgerTransaction.id}")
             }
-            log.info("Finished responder flow - ${finalizedSignedTransaction.id}")
+            log.info("Finished responder flow - ${finalizedSignedTransaction.transaction.id}")
         }
         // Soft fails the flow and log the exception.
         catch (e: Exception) {

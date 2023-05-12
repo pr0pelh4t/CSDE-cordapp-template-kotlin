@@ -18,15 +18,14 @@ import net.corda.v5.application.flows.*
 import net.corda.v5.application.messaging.FlowMessaging
 import net.corda.v5.base.exceptions.CordaRuntimeException
 import net.corda.v5.base.types.MemberX500Name
-import net.corda.v5.ledger.common.Party
 import net.corda.v5.ledger.utxo.StateAndRef
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
-class CreateAccountRequest ()
+class CreateAccountRequest (val tagName: String?, val tagValue: String?)
 
 @InitiatingFlow(protocol = "create-account-flow")
-class CreateAccountFlow  (private val tagName: String? = null, private val tagValue: String? = null) : ClientStartableFlow {
+class CreateAccountFlow  () : ClientStartableFlow {
 
     private companion object {
         val log = LoggerFactory.getLogger(this::class.java.enclosingClass)
@@ -57,6 +56,8 @@ class CreateAccountFlow  (private val tagName: String? = null, private val tagVa
     @Suspendable
     override fun call(requestBody: ClientRequestBody):String{
         val req = requestBody.getRequestBodyAs(jsonMarshallingService, CreateAccountRequest::class.java)
+        val tagName = req.tagName;
+        val tagValue = req.tagValue;
         val myInfo = memberLookup.myInfo()
         log.warn("*** OURIDENTITY ***")
         log.warn(myInfo.name.toString());
@@ -66,13 +67,15 @@ class CreateAccountFlow  (private val tagName: String? = null, private val tagVa
         if(null == issuers){
             throw CordaRuntimeException("No issuer found in ledger")
         }
-        var test: List<StateAndRef<AccountState>>? = null
-        if(issuers.name.toString() == myInfo.name.toString() ){
-            test = flowEngine.subFlow(GetAccountByTagFlow(tagName = "issuer", tagValue = "issuer"))
-            log.warn("Subflow result $test");
+        var existing: List<StateAndRef<AccountState>>? = null
+        log.info("tagName $tagName tagValue $tagValue")
+        if(null!=tagName && null!=tagValue ){
+            log.info("fetching existing accounts");
+            existing = flowEngine.subFlow(GetAccountByTagFlow(tagName = tagName, tagValue = tagValue))
+            log.warn("Subflow result $existing");
         }
         try {
-            if ((issuers.name.toString() == myInfo.name.toString() && test?.isEmpty() == true) || issuers.name.toString() !== myInfo.name.toString()) {
+            if (null!= existing && existing.isEmpty()) {
 
                 val accountId = UUID.randomUUID().toString()
                 val createdTag = Tag("created", Instant.now().toString().replace(':', '.'))
@@ -87,19 +90,19 @@ class CreateAccountFlow  (private val tagName: String? = null, private val tagVa
                 val notaryKey = memberLookup.lookup().single {
                     it.memberProvidedContext["corda.notary.service.name"] == notaryInfo.name.toString()
                 }.ledgerKeys.first()
-                val notary = Party(notaryInfo.name, notaryKey)
-                val issuer = Party(issuers.name, issuers.ledgerKeys.first())
-                log.warn("issuer $issuer");
+                //val notary = Party(notaryInfo.name, notaryKey)
+                //val issuer = Party(issuers.name, issuers.ledgerKeys.first())
+                log.warn("issuer $issuers.name");
                 val outputState = AccountState(
                     id = UUID.randomUUID(),
                     description = "description",
-                    issuer = issuer.name,
-                    tags = listOf(Tag("test", "test")),
-                    participants = listOf(issuer.owningKey, myInfo.ledgerKeys.first())
+                    issuer = issuers.name,
+                    tags = tags,
+                    participants = listOf(myInfo.ledgerKeys.first(), issuers.ledgerKeys.first())
                 )
                 log.warn("outputState built")
-                val txBuilder = ledgerService.getTransactionBuilder()
-                    .setNotary(notary)
+                val txBuilder = ledgerService.createTransactionBuilder()
+                    .setNotary(notaryInfo.name)
                     .addOutputState(outputState)
                     .addCommand(AccountContract.Request())
                     .setTimeWindowBetween(Instant.now(), Instant.now().plus(1, ChronoUnit.DAYS))
@@ -112,15 +115,16 @@ class CreateAccountFlow  (private val tagName: String? = null, private val tagVa
                     signedTransaction,
                     listOf(session)
                 )
-                finalizedSignedTransaction.id.toString().also {
+                finalizedSignedTransaction.transaction.id.toString().also {
                     log.info("Success! Response: $it")
                 }
                 val response: Message = session.receive(Message::class.java)
                 // check response for something
                 return outputState.id.toString()
             } else {
-                log.warn("issuer node, existing account");
-                return test?.get(0)?.state?.contractState?.id.toString()
+                log.warn("existing account, accountId: ${existing?.get(0)?.state?.contractState?.id.toString()}");
+
+                return existing?.get(0)?.state?.contractState?.id.toString()
             }
         }catch(e:Exception){
             log.error("error $e")

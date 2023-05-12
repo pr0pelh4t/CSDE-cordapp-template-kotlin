@@ -13,6 +13,7 @@ import java.security.PublicKey
 class Token (
         private val participants: List<PublicKey>,
         val value: BigDecimal,
+        val nominalValue: BigDecimal,
         val currency: String,
         val issuer: SecureHash,
         val symbol: String,
@@ -28,10 +29,14 @@ class Token (
      * Helper method for transferring token ownership
      */
     fun transfer(newOwner: SecureHash, newParticipants: List<PublicKey>): Token {
-        return Token(value = value, currency = currency, issuer = issuer, symbol = symbol,ownerHash = newOwner, participants = newParticipants)
+        return Token(value = value, nominalValue = nominalValue, currency = currency, issuer = issuer, symbol = symbol,ownerHash = newOwner, participants = newParticipants)
     }
 
     override fun getParticipants(): List<PublicKey>{
         return participants
+    }
+
+    override fun toString(): String {
+        return "Symbol: $symbol, Owner: $ownerHash, value: $value, nominalValue: $nominalValue"
     }
 }
