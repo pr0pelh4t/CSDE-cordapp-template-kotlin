@@ -6,12 +6,13 @@ RPC_PORT=8888
 P2P_GATEWAY_HOST=localhost
 P2P_GATEWAY_PORT=8080
 API_URL="https://$RPC_HOST:$RPC_PORT/api/v1"
-WORK_DIR=~/Corda/corda5/corda5-samples/kotlin-samples/mgm-dynamic-network/register-mgm
+WORK_DIR=./register-mgm
 mkdir -p "$WORK_DIR"
-RUNTIME_OS=~/Corda/corda5/corda-runtime-os
+RUNTIME_OS=../../corda-runtime-os
 
 echo "\n---Create a mock CA and signing keys---"
 cd "$WORK_DIR"
+WORK_DIR_ABS=$PWD
 #default signing key
 echo '-----BEGIN CERTIFICATE-----
 MIIB7zCCAZOgAwIBAgIEFyV7dzAMBggqhkjOPQQDAgUAMFsxCzAJBgNVBAYTAkdC
@@ -30,30 +31,37 @@ zU+Rc5yMtcOY4/moZUq36r0Ilg==
 keytool -genkeypair -alias "signing key 1" -keystore signingkeys.pfx -storepass "keystore password" -dname "cn=CPI Plugin Example - Signing Key 1, o=R3, L=London, c=GB" -keyalg RSA -storetype pkcs12 -validity 4000
 #Import gradle-plugin-default-key.pem into the keystore
 keytool -importcert -keystore signingkeys.pfx -storepass "keystore password" -noprompt -alias gradle-plugin-default-key -file gradle-plugin-default-key.pem
+
 cd "$RUNTIME_OS"
+RUNTIME_OS_ABS=$PWD
 ./gradlew :applications:tools:p2p-test:fake-ca:clean :applications:tools:p2p-test:fake-ca:appJar
-java -jar ./applications/tools/p2p-test/fake-ca/build/bin/corda-fake-ca-5.0.0.0-Gecko-SNAPSHOT.jar -m /tmp/ca -a RSA -s 3072 ca
-cd "$WORK_DIR"
+java -jar ./applications/tools/p2p-test/fake-ca/build/bin/corda-fake-ca-5.0.0.0-SNAPSHOT.jar -m /tmp/ca -a RSA -s 3072 ca
+cd "$WORK_DIR_ABS"
 
 
 echo "\n---Build mgm CPB---"
-cd "$RUNTIME_OS"
-./gradlew testing:cpbs:mgm:build
-cp testing/cpbs/mgm/build/libs/mgm-5.0.0.0-Gecko-SNAPSHOT-package.cpb "$WORK_DIR"
+cd ../../mgm
+#cd "$RUNTIME_OS"
+echo $PWD
+#./gradlew testing:cpbs:mgm:build
+./gradlew cpb
+
+echo "\n---Built mgm CPB---"
+cp ./build/libs/mgm-1.0-SNAPSHOT-package.cpb "$WORK_DIR_ABS"
 echo '{
   "fileFormatVersion" : 1,
   "groupId" : "CREATE_ID",
   "registrationProtocol" :"net.corda.membership.impl.registration.dynamic.mgm.MGMRegistrationService",
   "synchronisationProtocol": "net.corda.membership.impl.synchronisation.MgmSynchronisationServiceImpl"
-}' > "$WORK_DIR"/MgmGroupPolicy.json
-cd "$WORK_DIR"
-mv ./mgm-5.0.0.0-Gecko-SNAPSHOT-package.cpb mgm.cpb
+}' > $WORK_DIR_ABS/MgmGroupPolicy.json
+cd "$WORK_DIR_ABS"
+mv ./mgm-1.0-SNAPSHOT-package.cpb mgm.cpb
 
 
 echo "\n---Build and upload MGM CPI---"
-cd "$WORK_DIR"
+cd "$WORK_DIR_ABS"
 #Run this command to turn a CPB into a CPI
-sh ~/.corda/cli/corda-cli.sh package create-cpi --cpb mgm.cpb --group-policy MgmGroupPolicy.json --cpi-name "mgm cpi" --cpi-version "1.0.0.0-SNAPSHOT" --file mgm.cpi --keystore signingkeys.pfx --storepass "keystore password" --key "signing key 1"
+sh ~/.corda/cli/corda-cli.sh package create-cpi --cpb mgm.cpb --group-policy MgmGroupPolicy.json --cpi-name "cpi name" --cpi-version "1.0.0.0-SNAPSHOT" --file mgm.cpi --keystore signingkeys.pfx --storepass "keystore password" --key "signing key 1"
 #Import the gradle plugin default key into Corda
 curl --insecure -u admin:admin -X PUT -F alias="gradle-plugin-default-key" -F certificate=@gradle-plugin-default-key.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
 #Export the signing key certificate from the key store
@@ -97,11 +105,12 @@ curl -k -u admin:admin -X POST -H "Content-Type: application/json" $API_URL/keys
 echo "\n"
 read -p "Enter the TLS_KEY_ID from the returned body:" TLS_KEY_ID
 echo "TLS_KEY_ID:" $TLS_KEY_ID
-curl -k -u admin:admin  -X POST -H "Content-Type: application/json" -d '{"x500Name": "CN=CordaOperator, C=GB, L=London, O=Org", "subjectAlternativeNames": ["'$P2P_GATEWAY_HOST'"]}' $API_URL"/certificates/p2p/"$TLS_KEY_ID > "$WORK_DIR"/request1.csr
+curl -k -u admin:admin  -X POST -H "Content-Type: application/json" -d '{"x500Name": "CN=CordaOperator, C=GB, L=London, O=Org", "subjectAlternativeNames": ["'$P2P_GATEWAY_HOST'"]}' $API_URL"/certificates/p2p/"$TLS_KEY_ID > "$WORK_DIR_ABS"/request1.csr
 read -p "Wait for download to be finished, Then press any key to continue..." ANY
-cd "$RUNTIME_OS"
-java -jar ./applications/tools/p2p-test/fake-ca/build/bin/corda-fake-ca-5.0.0.0-Gecko-SNAPSHOT.jar -m /tmp/ca csr "$WORK_DIR"/request1.csr
-cd "$WORK_DIR"
+cd "$RUNTIME_OS_ABS"
+echo $PWD
+java -jar ./applications/tools/p2p-test/fake-ca/build/bin/corda-fake-ca-5.0.0.0-SNAPSHOT.jar -m /tmp/ca csr "$WORK_DIR_ABS"/request1.csr
+cd "$WORK_DIR_ABS"
 curl -k -u admin:admin -X PUT  -F certificate=@/tmp/ca/request1/certificate.pem -F alias=p2p-tls-cert $API_URL/certificates/cluster/p2p-tls
 
 
@@ -115,8 +124,21 @@ curl -k -u admin:admin -X PUT -d '{"section":"corda.p2p.gateway", "version":"'$C
 
 echo "\n---Register MGM---"
 TLS_CA_CERT=$(cat /tmp/ca/ca/root-certificate.pem | awk '{printf "%s\\n", $0}')
+#REGISTRATION_CONTEXT='{
+#  "corda.session.key.id": "'$SESSION_KEY_ID'",
+#  "corda.ecdh.key.id": "'$ECDH_KEY_ID'",
+#  "corda.group.protocol.registration": "net.corda.membership.impl.registration.dynamic.member.DynamicMemberRegistrationService",
+#  "corda.group.protocol.synchronisation": "net.corda.membership.impl.synchronisation.MemberSynchronisationServiceImpl",
+#  "corda.group.protocol.p2p.mode": "Authenticated_Encryption",
+#  "corda.group.key.session.policy": "Combined",
+#  "corda.group.pki.session": "NoPKI",
+#  "corda.group.pki.tls": "Standard",
+#  "corda.group.tls.version": "1.3",
+#  "corda.endpoints.0.connectionURL": "https://'$P2P_GATEWAY_HOST':'$P2P_GATEWAY_PORT'",
+#  "corda.endpoints.0.protocolVersion": "1",
+#  "corda.group.truststore.tls.0" : "'$TLS_CA_CERT'"
+#}'
 REGISTRATION_CONTEXT='{
-  "corda.session.key.id": "'$SESSION_KEY_ID'",
   "corda.ecdh.key.id": "'$ECDH_KEY_ID'",
   "corda.group.protocol.registration": "net.corda.membership.impl.registration.dynamic.member.DynamicMemberRegistrationService",
   "corda.group.protocol.synchronisation": "net.corda.membership.impl.synchronisation.MemberSynchronisationServiceImpl",
@@ -129,7 +151,9 @@ REGISTRATION_CONTEXT='{
   "corda.endpoints.0.protocolVersion": "1",
   "corda.group.truststore.tls.0" : "'$TLS_CA_CERT'"
 }'
-REGISTRATION_REQUEST='{"memberRegistrationRequest":{"action": "requestJoin", "context": '$REGISTRATION_CONTEXT'}}'
+#REGISTRATION_REQUEST='{"memberRegistrationRequest":{"action": "requestJoin", "context": '$REGISTRATION_CONTEXT'}}'
+REGISTRATION_REQUEST='{"memberRegistrationRequest":{ "context": '$REGISTRATION_CONTEXT'}}'
+
 curl --insecure -u admin:admin -d "$REGISTRATION_REQUEST" $API_URL/membership/$MGM_HOLDING_ID
 echo "\n"
 read -p "Enter the REGISTRATION_ID from the returned body:" REGISTRATION_ID
@@ -144,6 +168,6 @@ echo "\n"
 
 
 echo "---Export group policy for group---"
-cd "$WORK_DIR"
+cd "$WORK_DIR_ABS"
 mkdir -p "./register-member"
-curl --insecure -u admin:admin -X GET $API_URL/mgm/$MGM_HOLDING_ID/info > "$WORK_DIR/register-member/GroupPolicy.json"
+curl --insecure -u admin:admin -X GET $API_URL/mgm/$MGM_HOLDING_ID/info > "$WORK_DIR_ABS/register-member/GroupPolicy.json"
