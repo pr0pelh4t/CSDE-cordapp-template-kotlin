@@ -10,6 +10,7 @@ import net.corda.v5.base.exceptions.CordaRuntimeException
 import net.corda.v5.base.types.MemberX500Name
 import net.corda.v5.ledger.common.NotaryLookup
 import net.corda.v5.ledger.utxo.UtxoLedgerService
+import net.corda.v5.membership.NotaryInfo
 import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.time.Instant
@@ -67,7 +68,7 @@ class CreateNewChatFlow: ClientStartableFlow {
             )
 
             // Obtain the notary.
-            val notary = notaryLookup.notaryServices.single()
+            val notary: NotaryInfo = notaryLookup.notaryServices.single()
 
             // Use UTXOTransactionBuilder to build up the draft transaction.
             val txBuilder= ledgerService.createTransactionBuilder()
