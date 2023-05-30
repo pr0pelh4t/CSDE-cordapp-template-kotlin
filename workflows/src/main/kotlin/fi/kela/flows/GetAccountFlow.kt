@@ -39,7 +39,7 @@ class GetAccountFlow : ClientStartableFlow {
     override fun call(requestBody: ClientRequestBody):String{
         val flowArgs: GetAccountRequest = requestBody.getRequestBodyAs(jsonMarshallingService, GetAccountRequest::class.java)
         val states = ledgerService.findUnconsumedStatesByType(AccountState::class.java)
-        val balances = flowEngine.subFlow()
+        val balances = flowEngine.subFlow(GetTokensFlowInternal(flowArgs.id))
         val results = states.map {
             AccountResult(
                 it.state.contractState.id,

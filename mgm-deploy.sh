@@ -8,39 +8,23 @@ P2P_GATEWAY_PORT=8080
 API_URL="https://$RPC_HOST:$RPC_PORT/api/v1"
 WORK_DIR=./register-mgm
 mkdir -p "$WORK_DIR"
-RUNTIME_OS=../../corda-runtime-os
+RUNTIME_OS=../../../corda5/corda-runtime-os
 
 echo "\n---Create a mock CA and signing keys---"
 cd "$WORK_DIR"
 WORK_DIR_ABS=$PWD
-#default signing key
-echo '-----BEGIN CERTIFICATE-----
-MIIB7zCCAZOgAwIBAgIEFyV7dzAMBggqhkjOPQQDAgUAMFsxCzAJBgNVBAYTAkdC
-MQ8wDQYDVQQHDAZMb25kb24xDjAMBgNVBAoMBUNvcmRhMQswCQYDVQQLDAJSMzEe
-MBwGA1UEAwwVQ29yZGEgRGV2IENvZGUgU2lnbmVyMB4XDTIwMDYyNTE4NTI1NFoX
-DTMwMDYyMzE4NTI1NFowWzELMAkGA1UEBhMCR0IxDzANBgNVBAcTBkxvbmRvbjEO
-MAwGA1UEChMFQ29yZGExCzAJBgNVBAsTAlIzMR4wHAYDVQQDExVDb3JkYSBEZXYg
-Q29kZSBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQDjSJtzQ+ldDFt
-pHiqdSJebOGPZcvZbmC/PIJRsZZUF1bl3PfMqyG3EmAe0CeFAfLzPQtf2qTAnmJj
-lGTkkQhxo0MwQTATBgNVHSUEDDAKBggrBgEFBQcDAzALBgNVHQ8EBAMCB4AwHQYD
-VR0OBBYEFLMkL2nlYRLvgZZq7GIIqbe4df4pMAwGCCqGSM49BAMCBQADSAAwRQIh
-ALB0ipx6EplT1fbUKqgc7rjH+pV1RQ4oKF+TkfjPdxnAAiArBdAI15uI70wf+xlL
-zU+Rc5yMtcOY4/moZUq36r0Ilg==
------END CERTIFICATE-----' > ./gradle-plugin-default-key.pem
-#Generate a signing key:
-keytool -genkeypair -alias "signing key 1" -keystore signingkeys.pfx -storepass "keystore password" -dname "cn=CPI Plugin Example - Signing Key 1, o=R3, L=London, c=GB" -keyalg RSA -storetype pkcs12 -validity 4000
-#Import gradle-plugin-default-key.pem into the keystore
-keytool -importcert -keystore signingkeys.pfx -storepass "keystore password" -noprompt -alias gradle-plugin-default-key -file gradle-plugin-default-key.pem
+
 
 cd "$RUNTIME_OS"
 RUNTIME_OS_ABS=$PWD
-./gradlew :applications:tools:p2p-test:fake-ca:clean :applications:tools:p2p-test:fake-ca:appJar
-java -jar ./applications/tools/p2p-test/fake-ca/build/bin/corda-fake-ca-5.0.0.0-SNAPSHOT.jar -m /tmp/ca -a RSA -s 3072 ca
+#./gradlew :applications:tools:p2p-test:fake-ca:clean :applications:tools:p2p-test:fake-ca:appJar
+#java -jar ./applications/tools/p2p-test/fake-ca/build/bin/corda-fake-ca-5.0.0.0-SNAPSHOT.jar -m /tmp/ca -a RSA -s 3072 ca
+
 cd "$WORK_DIR_ABS"
 
 
 echo "\n---Build mgm CPB---"
-cd ../../mgm
+cd ../../../corda5/mgm
 #cd "$RUNTIME_OS"
 echo $PWD
 #./gradlew testing:cpbs:mgm:build
@@ -61,13 +45,29 @@ mv ./mgm-1.0-SNAPSHOT-package.cpb mgm.cpb
 echo "\n---Build and upload MGM CPI---"
 cd "$WORK_DIR_ABS"
 #Run this command to turn a CPB into a CPI
-sh ~/.corda/cli/corda-cli.sh package create-cpi --cpb mgm.cpb --group-policy MgmGroupPolicy.json --cpi-name "cpi name" --cpi-version "1.0.0.0-SNAPSHOT" --file mgm.cpi --keystore signingkeys.pfx --storepass "keystore password" --key "signing key 1"
+#sh ~/.corda/cli/corda-cli.sh package create-cpi --cpb mgm.cpb --group-policy MgmGroupPolicy.json --cpi-name "cpi name" --cpi-version "1.0.0.0-SNAPSHOT" --file mgm.cpi --keystore signingkeys.pfx --storepass "keystore password" --key "signing key 1"
+rm -f mgm.cpi
+sh ~/.corda/cli/corda-cli.sh package create-cpi --cpb mgm.cpb --group-policy MgmGroupPolicy.json --cpi-name "cpi name" --cpi-version "1.0.0.0-SNAPSHOT" --file mgm.cpi --keystore signingkeys.pfx --storepass "keystore password" --key "kdk"
 #Import the gradle plugin default key into Corda
+echo "\n---Upload gradle default plugin key into corda---"
 curl --insecure -u admin:admin -X PUT -F alias="gradle-plugin-default-key" -F certificate=@gradle-plugin-default-key.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
+echo "\n---Upload kdk signing key into corda---"
+keytool -exportcert -rfc -alias "kdk" -keystore signingkeys.pfx -storepass "keystore password" -file signingkey1.pem
+#curl --insecure -u admin:admin -X PUT -F alias="kdk" -F certificate=@signingkey1.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
+
 #Export the signing key certificate from the key store
-keytool -exportcert -rfc -alias "signing key 1" -keystore signingkeys.pfx -storepass "keystore password" -file signingkey1.pem
+#keytool --importcert --keystore signingkeys2.pfx --storepass "keystore password" -alias "KDK cert" --file signingkey1.pem
+
+#keytool -exportcert -rfc -alias "freetsa" -keystore signingkeys2.pfx -storepass "keystore password" -file tsa.pem
+
+
 #Import the signing key into Corda
-curl --insecure -u admin:admin -X PUT -F alias="signingkey1-2022" -F certificate=@signingkey1.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
+curl --insecure -u admin:admin -X PUT -F alias="KDK" -F certificate=@signingkey1.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
+
+echo "\n---Upload ca key into corda---"
+curl --insecure -u admin:admin -X PUT -F alias="ca" -F certificate=@ca-chain.cert.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
+curl --insecure -u admin:admin -X PUT -F alias="rootca" -F certificate=@ca.cert.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
+
 CPI_PATH=./mgm.cpi
 curl --insecure -u admin:admin -F upload=@$CPI_PATH $API_URL/cpi/
 echo "\n"
@@ -105,14 +105,27 @@ curl -k -u admin:admin -X POST -H "Content-Type: application/json" $API_URL/keys
 echo "\n"
 read -p "Enter the TLS_KEY_ID from the returned body:" TLS_KEY_ID
 echo "TLS_KEY_ID:" $TLS_KEY_ID
-curl -k -u admin:admin  -X POST -H "Content-Type: application/json" -d '{"x500Name": "CN=CordaOperator, C=GB, L=London, O=Org", "subjectAlternativeNames": ["'$P2P_GATEWAY_HOST'"]}' $API_URL"/certificates/p2p/"$TLS_KEY_ID > "$WORK_DIR_ABS"/request1.csr
+echo "\n---Fetching xxx from Corda---"
+#curl -k -u admin:admin  -X POST -H "Content-Type: application/json" -d '{"x500Name": "CN=CordaOperator, C=GB, L=London, O=Org", "subjectAlternativeNames": ["'$P2P_GATEWAY_HOST'"]}' $API_URL"/certificates/p2p/"$TLS_KEY_ID > "$WORK_DIR_ABS"/request1.csr
+curl -k -u admin:admin  -X POST -H "Content-Type: application/json" -d '{"x500Name": "CN=Kela, C=FI, L=Helsinki, O=Inno", "subjectAlternativeNames": ["'$P2P_GATEWAY_HOST'"]}' $API_URL"/certificates/p2p/"$TLS_KEY_ID > "$WORK_DIR_ABS"/request1.csr
+
 read -p "Wait for download to be finished, Then press any key to continue..." ANY
 cd "$RUNTIME_OS_ABS"
-echo $PWD
 java -jar ./applications/tools/p2p-test/fake-ca/build/bin/corda-fake-ca-5.0.0.0-SNAPSHOT.jar -m /tmp/ca csr "$WORK_DIR_ABS"/request1.csr
-cd "$WORK_DIR_ABS"
-curl -k -u admin:admin -X PUT  -F certificate=@/tmp/ca/request1/certificate.pem -F alias=p2p-tls-cert $API_URL/certificates/cluster/p2p-tls
+cd $WORK_DIR_ABS
+echo $PWD
+#echo "\n---Create certificate request---"
+#keytool -keystore signingkeys2.pfx -certreq -alias KDK -keyalg rsa -file request1.csr
+#openssl x509 -req -CA import.pem -CAkey ca-key.pem.txt -in request1.csr -out "register-member/request1.cer" -days 365 -CAcreateserial
+openssl x509 -req -CA ~/myCA/intermediateCA/certs/ca-chain.cert.pem -CAkey ~/myCA/intermediateCA/private/intermediate.key.pem -extensions server_cert -in request1.csr -sha256 -out  "register-member/request1.cer" -days  365 -CAcreateserial
+rm -f p2p.pfx
+keytool -import -file ./register-member/request1.cer -keystore p2p.pfx -storepass "keystore password" -alias p2p-tls-cert
+keytool -exportcert -rfc -alias "p2p-tls-cert" -keystore p2p.pfx -storepass "keystore password" -file p2p.pem
 
+cd "$WORK_DIR_ABS"
+#curl -k -u admin:admin -X PUT  -F certificate=@/tmp/ca/request1/certificate.pem -F alias=p2p-tls-cert $API_URL/certificates/cluster/p2p-tls
+#curl -k -u admin:admin -X PUT  -F certificate=@p2p.pem -F alias=p2p-tls-cert $API_URL/certificates/cluster/p2p-tls
+curl -k -u admin:admin -X PUT  -F certificate=@p2p.pem -F alias=p2p-tls-cert $API_URL/certificates/cluster/p2p-tls
 
 echo "---Disable revocation checks---"
 curl --insecure -u admin:admin -X GET $API_URL/config/corda.p2p.gateway
@@ -123,7 +136,13 @@ curl -k -u admin:admin -X PUT -d '{"section":"corda.p2p.gateway", "version":"'$C
 
 
 echo "\n---Register MGM---"
-TLS_CA_CERT=$(cat /tmp/ca/ca/root-certificate.pem | awk '{printf "%s\\n", $0}')
+#TLS_CA_CERT=$(cat /tmp/ca/ca/root-certificate.pem | awk '{printf "%s\\n", $0}')
+#TLS_CA_CERT=$(cat tsa.pem | awk '{printf "%s\n", $0}')
+#TLS_CA_CERT=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' ca-certificate.pem.txt)
+#TLS_CA_CERT=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' ca.cert.pem)
+TLS_CA_CERT=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' ~/myCA/intermediateCA/certs/intermediate.cert.pem)
+TLS_CAROOT_CERT=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' ~/myCA/rootCA/certs/ca.cert.pem)
+
 #REGISTRATION_CONTEXT='{
 #  "corda.session.key.id": "'$SESSION_KEY_ID'",
 #  "corda.ecdh.key.id": "'$ECDH_KEY_ID'",
@@ -138,21 +157,9 @@ TLS_CA_CERT=$(cat /tmp/ca/ca/root-certificate.pem | awk '{printf "%s\\n", $0}')
 #  "corda.endpoints.0.protocolVersion": "1",
 #  "corda.group.truststore.tls.0" : "'$TLS_CA_CERT'"
 #}'
-REGISTRATION_CONTEXT='{
-  "corda.ecdh.key.id": "'$ECDH_KEY_ID'",
-  "corda.group.protocol.registration": "net.corda.membership.impl.registration.dynamic.member.DynamicMemberRegistrationService",
-  "corda.group.protocol.synchronisation": "net.corda.membership.impl.synchronisation.MemberSynchronisationServiceImpl",
-  "corda.group.protocol.p2p.mode": "Authenticated_Encryption",
-  "corda.group.key.session.policy": "Combined",
-  "corda.group.pki.session": "NoPKI",
-  "corda.group.pki.tls": "Standard",
-  "corda.group.tls.version": "1.3",
-  "corda.endpoints.0.connectionURL": "https://'$P2P_GATEWAY_HOST':'$P2P_GATEWAY_PORT'",
-  "corda.endpoints.0.protocolVersion": "1",
-  "corda.group.truststore.tls.0" : "'$TLS_CA_CERT'"
-}'
+REGISTRATION_CONTEXT='{"corda.session.keys.0.id": "'$SESSION_KEY_ID'", "corda.ecdh.key.id": "'$ECDH_KEY_ID'", "corda.group.protocol.registration": "net.corda.membership.impl.registration.dynamic.member.DynamicMemberRegistrationService", "corda.group.protocol.synchronisation": "net.corda.membership.impl.synchronisation.MemberSynchronisationServiceImpl", "corda.group.protocol.p2p.mode": "Authenticated_Encryption", "corda.group.key.session.policy": "Combined", "corda.group.pki.session": "NoPKI", "corda.group.pki.tls": "Standard", "corda.group.tls.version": "1.3", "corda.endpoints.0.connectionURL": "https://'$P2P_GATEWAY_HOST':'$P2P_GATEWAY_PORT'", "corda.endpoints.0.protocolVersion": "1", "corda.group.trustroot.tls.0": "'$TLS_CA_CERT'", "corda.group.trustroot.tls.1": "'$TLS_CAROOT_CERT'"}'
 #REGISTRATION_REQUEST='{"memberRegistrationRequest":{"action": "requestJoin", "context": '$REGISTRATION_CONTEXT'}}'
-REGISTRATION_REQUEST='{"memberRegistrationRequest":{ "context": '$REGISTRATION_CONTEXT'}}'
+REGISTRATION_REQUEST='{"memberRegistrationRequest":{"context":'$REGISTRATION_CONTEXT'}}'
 
 curl --insecure -u admin:admin -d "$REGISTRATION_REQUEST" $API_URL/membership/$MGM_HOLDING_ID
 echo "\n"
@@ -163,7 +170,7 @@ echo "\n"
 
 
 echo "---Configure virtual node as network participant---"
-curl -k -u admin:admin -X PUT -d '{"p2pTlsCertificateChainAlias": "p2p-tls-cert", "useClusterLevelTlsCertificateAndKey": true, "sessionKeyId": "'$SESSION_KEY_ID'"}' $API_URL/network/setup/$MGM_HOLDING_ID
+curl -k -u admin:admin -X PUT -d '{"p2pTlsCertificateChainAlias": "p2p-tls-cert", "useClusterLevelTlsCertificateAndKey": true, "sessionKeysAndCertificates": [{"preferred": true, "sessionKeyId": "'$SESSION_KEY_ID'"}]}' $API_URL/network/setup/$MGM_HOLDING_ID
 echo "\n"
 
 

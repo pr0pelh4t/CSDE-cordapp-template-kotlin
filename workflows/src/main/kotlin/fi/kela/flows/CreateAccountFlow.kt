@@ -1,7 +1,6 @@
 package fi.kela.flows
 
 
-import com.r3.developers.csdetemplate.flowexample.workflows.Message
 import fi.kela.contracts.AccountContract
 import fi.kela.states.AccountState
 import fi.kela.states.Tag
@@ -54,7 +53,7 @@ class CreateAccountFlow  () : ClientStartableFlow {
     lateinit var flowEngine: FlowEngine
 
     @Suspendable
-    override fun call(requestBody: ClientRequestBody):String{
+    override fun call(requestBody: ClientRequestBody): String {
         val req = requestBody.getRequestBodyAs(jsonMarshallingService, CreateAccountRequest::class.java)
         val tagName = req.tagName;
         val tagValue = req.tagValue;
@@ -64,18 +63,18 @@ class CreateAccountFlow  () : ClientStartableFlow {
         val issuers = memberLookup.lookup(MemberX500Name.parse(ISSUER_X500_NAME))
         log.warn("*** ISSUERS ***")
         log.warn(issuers?.name.toString());
-        if(null == issuers){
+        if (null == issuers) {
             throw CordaRuntimeException("No issuer found in ledger")
         }
         var existing: List<StateAndRef<AccountState>>? = null
         log.info("tagName $tagName tagValue $tagValue")
-        if(null!=tagName && null!=tagValue ){
+        if (null != tagName && null != tagValue) {
             log.info("fetching existing accounts");
             existing = flowEngine.subFlow(GetAccountByTagFlow(tagName = tagName, tagValue = tagValue))
             log.warn("Subflow result $existing");
         }
         try {
-            if (null!= existing && existing.isEmpty()) {
+            if (null != existing && existing.isEmpty()) {
 
                 val accountId = UUID.randomUUID().toString()
                 val createdTag = Tag("created", Instant.now().toString().replace(':', '.'))
@@ -118,7 +117,7 @@ class CreateAccountFlow  () : ClientStartableFlow {
                 finalizedSignedTransaction.transaction.id.toString().also {
                     log.info("Success! Response: $it")
                 }
-                val response: Message = session.receive(Message::class.java)
+                val response = session.receive(String::class.java)
                 // check response for something
                 return outputState.id.toString()
             } else {
@@ -126,14 +125,12 @@ class CreateAccountFlow  () : ClientStartableFlow {
 
                 return existing?.get(0)?.state?.contractState?.id.toString()
             }
-        }catch(e:Exception){
+        } catch (e: Exception) {
             log.error("error $e")
         }
 
         //session.send("testing flow")
-        val response = Message(myInfo.name,
-            "Hello best wishes")
-        return response.message
+        return "Hello best wishes from ${myInfo.name}"
 
     }
 
@@ -176,11 +173,9 @@ class CreateAccountFlowResponder: ResponderFlow {
         }
 
         // Create a response to greet the sender
-        val response = Message(ourIdentity,
-            "Hello ${session.counterparty.commonName}, best wishes from ${ourIdentity.commonName}")
-
+        val response =  "Hello ${session.counterparty.commonName}, best wishes from ${ourIdentity.commonName}"
         // Log the response to be sent.
-        CreateAccountFlowResponder.log.info("MFF: response.message: ${response.message}")
+        CreateAccountFlowResponder.log.info("MFF: response.message: ${response}")
 
         // Send the response via the send method on the flow session
         session.send(response)
