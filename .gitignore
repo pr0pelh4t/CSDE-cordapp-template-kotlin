@@ -85,3 +85,8 @@ workspace/**
 
 # ingore temporary data files
 *.dat
+
+register-mgm/*.json
+register-mgm/*.pem
+register-mgm/*.csr
+register-mgm/*.pfx
