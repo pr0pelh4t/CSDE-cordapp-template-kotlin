@@ -35,7 +35,8 @@ import java.security.PublicKey
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
-class TransferBody(val from: MemberX500Name?, val to:MemberX500Name, val fromAccount: String?, val receiverAccount: String, val amount: Int, val symbol: String)
+//class TransferBody(val from: MemberX500Name?, val to:MemberX500Name, val fromAccount: String?, val receiverAccount: String, val amount: Int, val symbol: String)
+class TransferBody(val from: MemberX500Name?, val to:MemberX500Name, val amount: Int, val symbol: String)
 
 /**
  * Flow to transfer tokens from one owner to another
@@ -75,190 +76,200 @@ class TransferTokensFlow : ClientStartableFlow {
     override fun call(requestBody: ClientRequestBody): String {
         val reqBody:TransferBody = requestBody.getRequestBodyAs(jsonMarshallingService, TransferBody::class.java)
         var tokenClaim: TokenClaim? = null
-        if(null == reqBody.fromAccount){
-            log.info("no from account, getting from token pool");
+        //if(null == reqBody.fromAccount){
+        if(null == reqBody.from){
 
-            val issuer = memberLookup.lookup(MemberX500Name.parse(Constants.ISSUER_X500_NAME))
-            val notary: NotaryInfo = notaryLookup.notaryServices.single()
-            val to = reqBody.to;
-            val receiverAccount = reqBody.receiverAccount;
-            val receiverNode = memberLookup.lookup(to);
-            val symbol = reqBody.symbol;
-            val ourIdentity = memberLookup.myInfo()
+                log.info("no from account, getting from token pool");
 
-            log.warn("receiverAccount: $receiverAccount, to: $to, symbol: $symbol, amount: ${reqBody.amount}")
+                val issuer = memberLookup.lookup(MemberX500Name.parse(Constants.ISSUER_X500_NAME))
+                val notary: NotaryInfo = notaryLookup.notaryServices.single()
+                val to = reqBody.to;
+                //val receiverAccount = reqBody.receiverAccount;
+                val receiverNode = memberLookup.lookup(to);
+                val symbol = reqBody.symbol;
+                val ourIdentity = memberLookup.myInfo()
 
-            if(null == receiverNode) {
-                throw CordaRuntimeException("Receiver node is required for this flow")
+                //log.warn("receiverAccount: $receiverAccount, to: $to, symbol: $symbol, amount: ${reqBody.amount}")
+                log.warn("receiverNode: $receiverNode, to: $to, symbol: $symbol, amount: ${reqBody.amount}")
+
+                if(null == receiverNode) {
+                    throw CordaRuntimeException("Receiver node is required for this flow")
+                }
+
+                //if((null == issuer || issuer.name != ourIdentity.name)) {
+                if(null == issuer) {
+                    throw CordaRuntimeException("Only an issuer can initiate this flow.")
+                }
+
+                log.warn("symbol: $symbol, issuerHash: ${toSecureHash(issuer.name, digestService)}, notary: ${notary.name}, amount: ${reqBody.amount}")
+
+                val issuerHash = toSecureHash(issuer.name, digestService)
+                val selectionCriteria = TokenClaimCriteria(
+                    symbol,
+                    issuerHash,
+                    notary.name,
+                    "EUR",
+                    BigDecimal(reqBody.amount)
+                )
+                /*val selectionCriteria = TokenClaimCriteria(
+                    Token.tokenType,
+                    toSecureHash(issuer.name, digestService),
+                    notary.name,
+                    "EUR",
+                    BigDecimal(reqBody.amount)
+                )*/
+
+                tokenClaim = tokenSelection.tryClaim(selectionCriteria);
+                if(tokenClaim == null) {
+                    return "FAILED TO FIND ENOUGH TOKENS"
+                }
+
+                log.warn("*** TOKEN CLAIM ***")
+                log.warn(tokenClaim.toString())
+                tokenClaim.claimedTokens.forEach{it -> log.info("claimed ${it}")}
+
+                var spentCoins = listOf<StateRef>()
+
+                try{
+                    //spentCoins = transfer(tokenClaim.claimedTokens, receiverAccount, receiverNode, notary.name, listOf(receiverNode.ledgerKeys.first()))
+                    //tokenClaim.useAndRelease()))
+                    // dirty hack, after transactions tokenclaim does not exist anymore
+                    //tokenClaim.useAndRelease(tokenClaim.claimedTokens.map{it -> it.stateRef})
+                    //spentCoins = transfer(tokenClaim.claimedTokens, receiverAccount, receiverNode, notary.name, listOf(receiverNode.ledgerKeys.first()))
+                    spentCoins = transfer(tokenClaim.claimedTokens, receiverNode, notary.name, listOf(receiverNode.ledgerKeys.first()))
+
+                    /*tokenClaim.claimedTokens.forEach{ it ->
+                        log.info("token, $it");
+
+                        /** We need the initial state of the token */
+                        val inputState:StateRef = it.stateRef
+                        log.info("inputState: $inputState")
+                        log.info("ledgerService $ledgerService")
+                        //val opt2: List<StateAndRef<Token>> = ledgerService.findUnconsumedStatesByType(Token::class.java);
+                        //opt2.forEach{tkn -> log.info("tkn: $tkn")}
+                        val ipt: StateAndRef<Token> = ledgerService.resolve(inputState)
+
+                        /** We need the initial state of the receiver account */
+                        val rcvAccount = flowEngine.subFlow(GetAccountFlowInternal(receiverAccount))
+                        val inputAccState: TransactionState<AccountState> = rcvAccount.state
+
+                        /** Construct output (new) state of the token */
+                        val outputState = ipt.state.contractState.transfer( newOwner = toSecureHash(receiverAccount, digestService), newParticipants = listOf(receiverNode.ledgerKeys.first()))
+
+                        /** Construct output state of the account (for each token added to account) */
+                        val accOtptState = inputAccState.contractState.modifyBalance(symbol = ipt.state.contractState.symbol, amount = BigDecimal(1) )
+
+                        val txBuilder2: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
+                            //.setNotary(ipt.state.notary.name)
+                            .setNotary(notary.name)
+                            .addInputState(ipt.ref)
+                            .addCommand(TokenContract.Transfer())
+                            .addOutputState(outputState)
+                            .setTimeWindowBetween(Instant.now(), Instant.now().plus(1, ChronoUnit.DAYS))
+                            .addSignatories(listOf(receiverNode.ledgerKeys.first()))
+
+
+
+                        val stx1 = txBuilder2.toSignedTransaction();
+                        val session:FlowSession = flowMessaging.initiateFlow(receiverNode.name)
+                        val finalizedSignedTx = ledgerService.finalize(stx1, listOf(session))
+
+
+                        log.warn("notary $notary ,  accnotary: ${rcvAccount.state}")
+
+                        /** Construct transaction */
+                        val txBuilder: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
+                            .setNotary(notary.name)
+                            //.setNotary(rcvAccount.state.notary.name)
+                            //.addInputState(inputState)
+                            .addInputState(rcvAccount.ref)
+                            .addCommand(AccountContract.Update())
+                            //.addOutputState(outputState)
+                            .addOutputState(accOtptState)
+                            .setTimeWindowBetween(Instant.now(), Instant.now().plus(1, ChronoUnit.DAYS))
+                            .addSignatories(listOf(receiverNode.ledgerKeys.first()))
+
+                        val signedTx = txBuilder.toSignedTransaction()
+                        val session2:FlowSession = flowMessaging.initiateFlow(receiverNode.name)
+                        val finalizedSignedTx2 = ledgerService.finalize(signedTx, listOf(session2))
+
+                        /** Testing if this marks token as used */
+                        spentCoins.add(it.stateRef)
+                    }*/
+                    //tokenClaim.useAndRelease(spentCoins)
+
+                }catch(e:Exception){
+                    log.warn("Error", e);
+                }
+                finally{
+                    log.info("spentCoins ${spentCoins.size}")
+                    spentCoins.forEach{it -> log.info("spent ${it}")}
+                    tokenClaim.useAndRelease(spentCoins)
+                }
+            }else{
+                val issuer = memberLookup.lookup(MemberX500Name.parse(Constants.ISSUER_X500_NAME))
+                val notary: NotaryInfo = notaryLookup.notaryServices.single()
+                val to = reqBody.to;
+                //val receiverAccount = reqBody.receiverAccount;
+                //val fromAccount = reqBody.fromAccount;
+                val receiverNode = memberLookup.lookup(to);
+                val symbol = reqBody.symbol;
+                val ourIdentity = memberLookup.myInfo()
+
+                //log.warn("receiverAccount: $receiverAccount, to: $to, symbol: $symbol, amount: ${reqBody.amount}")
+                log.warn("receiverNode: $receiverNode, to: $to, symbol: $symbol, amount: ${reqBody.amount}")
+
+                if(null == receiverNode) {
+                    throw CordaRuntimeException("Receiver node is required for this flow")
+                }
+
+                //if((null == issuer || issuer.name != ourIdentity.name)) {
+                if(null == issuer) {
+                    throw CordaRuntimeException("Only an issuer can initiate this flow.")
+                }
+
+                log.warn("symbol: $symbol, issuerHash: ${toSecureHash(issuer.name, digestService)}, notary: ${notary.name}, amount: ${reqBody.amount}")
+
+                val issuerHash = toSecureHash(issuer.name, digestService)
+                val selectionCriteria = TokenClaimCriteria(
+                    symbol,
+                    issuerHash,
+                    notary.name,
+                    "EUR",
+                    BigDecimal(reqBody.amount)
+                )
+
+                tokenClaim = tokenSelection.tryClaim(selectionCriteria);
+                if(tokenClaim == null) {
+                    return "FAILED TO FIND ENOUGH TOKENS"
+                }
+
+                log.warn("*** TOKEN CLAIM ***")
+                log.warn(tokenClaim.toString())
+                tokenClaim.claimedTokens.forEach{it -> log.info("claimed ${it}")}
+
+                var spentCoins = listOf<StateRef>()
+
+                try{
+                    //spentCoins = transfer(tokenClaim.claimedTokens, receiverAccount, receiverNode, notary.name, listOf(receiverNode.ledgerKeys.first()))
+                    spentCoins = transfer(tokenClaim.claimedTokens, receiverNode, notary.name, listOf(receiverNode.ledgerKeys.first()))
+
+                }catch(e:Exception){
+                    log.warn("Error", e);
+                }
+                finally{
+                    log.info("spentCoins ${spentCoins.size}")
+                    spentCoins.forEach{it -> log.info("spent ${it}")}
+                    tokenClaim.useAndRelease(spentCoins)
+                }
             }
-
-            //if((null == issuer || issuer.name != ourIdentity.name)) {
-            if(null == issuer) {
-                throw CordaRuntimeException("Only an issuer can initiate this flow.")
-            }
-
-            log.warn("symbol: $symbol, issuerHash: ${toSecureHash(issuer.name, digestService)}, notary: ${notary.name}, amount: ${reqBody.amount}")
-
-            val issuerHash = toSecureHash(issuer.name, digestService)
-            val selectionCriteria = TokenClaimCriteria(
-                symbol,
-                issuerHash,
-                notary.name,
-                "EUR",
-                BigDecimal(reqBody.amount)
-            )
-            /*val selectionCriteria = TokenClaimCriteria(
-                Token.tokenType,
-                toSecureHash(issuer.name, digestService),
-                notary.name,
-                "EUR",
-                BigDecimal(reqBody.amount)
-            )*/
-
-            tokenClaim = tokenSelection.tryClaim(selectionCriteria);
-            if(tokenClaim == null) {
-                return "FAILED TO FIND ENOUGH TOKENS"
-            }
-
-            log.warn("*** TOKEN CLAIM ***")
-            log.warn(tokenClaim.toString())
-            tokenClaim.claimedTokens.forEach{it -> log.info("claimed ${it}")}
-
-            var spentCoins = listOf<StateRef>()
-
-            try{
-                //spentCoins = transfer(tokenClaim.claimedTokens, receiverAccount, receiverNode, notary.name, listOf(receiverNode.ledgerKeys.first()))
-                //tokenClaim.useAndRelease()))
-                // dirty hack, after transactions tokenclaim does not exist anymore
-                //tokenClaim.useAndRelease(tokenClaim.claimedTokens.map{it -> it.stateRef})
-                spentCoins = transfer(tokenClaim.claimedTokens, receiverAccount, receiverNode, notary.name, listOf(receiverNode.ledgerKeys.first()))
-                /*tokenClaim.claimedTokens.forEach{ it ->
-                    log.info("token, $it");
-
-                    /** We need the initial state of the token */
-                    val inputState:StateRef = it.stateRef
-                    log.info("inputState: $inputState")
-                    log.info("ledgerService $ledgerService")
-                    //val opt2: List<StateAndRef<Token>> = ledgerService.findUnconsumedStatesByType(Token::class.java);
-                    //opt2.forEach{tkn -> log.info("tkn: $tkn")}
-                    val ipt: StateAndRef<Token> = ledgerService.resolve(inputState)
-
-                    /** We need the initial state of the receiver account */
-                    val rcvAccount = flowEngine.subFlow(GetAccountFlowInternal(receiverAccount))
-                    val inputAccState: TransactionState<AccountState> = rcvAccount.state
-
-                    /** Construct output (new) state of the token */
-                    val outputState = ipt.state.contractState.transfer( newOwner = toSecureHash(receiverAccount, digestService), newParticipants = listOf(receiverNode.ledgerKeys.first()))
-
-                    /** Construct output state of the account (for each token added to account) */
-                    val accOtptState = inputAccState.contractState.modifyBalance(symbol = ipt.state.contractState.symbol, amount = BigDecimal(1) )
-
-                    val txBuilder2: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
-                        //.setNotary(ipt.state.notary.name)
-                        .setNotary(notary.name)
-                        .addInputState(ipt.ref)
-                        .addCommand(TokenContract.Transfer())
-                        .addOutputState(outputState)
-                        .setTimeWindowBetween(Instant.now(), Instant.now().plus(1, ChronoUnit.DAYS))
-                        .addSignatories(listOf(receiverNode.ledgerKeys.first()))
-
-
-
-                    val stx1 = txBuilder2.toSignedTransaction();
-                    val session:FlowSession = flowMessaging.initiateFlow(receiverNode.name)
-                    val finalizedSignedTx = ledgerService.finalize(stx1, listOf(session))
-
-
-                    log.warn("notary $notary ,  accnotary: ${rcvAccount.state}")
-
-                    /** Construct transaction */
-                    val txBuilder: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
-                        .setNotary(notary.name)
-                        //.setNotary(rcvAccount.state.notary.name)
-                        //.addInputState(inputState)
-                        .addInputState(rcvAccount.ref)
-                        .addCommand(AccountContract.Update())
-                        //.addOutputState(outputState)
-                        .addOutputState(accOtptState)
-                        .setTimeWindowBetween(Instant.now(), Instant.now().plus(1, ChronoUnit.DAYS))
-                        .addSignatories(listOf(receiverNode.ledgerKeys.first()))
-
-                    val signedTx = txBuilder.toSignedTransaction()
-                    val session2:FlowSession = flowMessaging.initiateFlow(receiverNode.name)
-                    val finalizedSignedTx2 = ledgerService.finalize(signedTx, listOf(session2))
-
-                    /** Testing if this marks token as used */
-                    spentCoins.add(it.stateRef)
-                }*/
-                //tokenClaim.useAndRelease(spentCoins)
-
-            }catch(e:Exception){
-                log.warn("Error", e);
-            }
-            finally{
-                log.info("spentCoins ${spentCoins.size}")
-                spentCoins.forEach{it -> log.info("spent ${it}")}
-                tokenClaim.useAndRelease(spentCoins)
-            }
-        }else{
-            val issuer = memberLookup.lookup(MemberX500Name.parse(Constants.ISSUER_X500_NAME))
-            val notary: NotaryInfo = notaryLookup.notaryServices.single()
-            val to = reqBody.to;
-            val receiverAccount = reqBody.receiverAccount;
-            val fromAccount = reqBody.fromAccount;
-            val receiverNode = memberLookup.lookup(to);
-            val symbol = reqBody.symbol;
-            val ourIdentity = memberLookup.myInfo()
-
-            log.warn("receiverAccount: $receiverAccount, to: $to, symbol: $symbol, amount: ${reqBody.amount}")
-
-            if(null == receiverNode) {
-                throw CordaRuntimeException("Receiver node is required for this flow")
-            }
-
-            //if((null == issuer || issuer.name != ourIdentity.name)) {
-            if(null == issuer) {
-                throw CordaRuntimeException("Only an issuer can initiate this flow.")
-            }
-
-            log.warn("symbol: $symbol, issuerHash: ${toSecureHash(issuer.name, digestService)}, notary: ${notary.name}, amount: ${reqBody.amount}")
-
-            val issuerHash = toSecureHash(issuer.name, digestService)
-            val selectionCriteria = TokenClaimCriteria(
-                symbol,
-                issuerHash,
-                notary.name,
-                "EUR",
-                BigDecimal(reqBody.amount)
-            )
-
-            tokenClaim = tokenSelection.tryClaim(selectionCriteria);
-            if(tokenClaim == null) {
-                return "FAILED TO FIND ENOUGH TOKENS"
-            }
-
-            log.warn("*** TOKEN CLAIM ***")
-            log.warn(tokenClaim.toString())
-            tokenClaim.claimedTokens.forEach{it -> log.info("claimed ${it}")}
-
-            var spentCoins = listOf<StateRef>()
-
-            try{
-                spentCoins = transfer(tokenClaim.claimedTokens, receiverAccount, receiverNode, notary.name, listOf(receiverNode.ledgerKeys.first()))
-            }catch(e:Exception){
-                log.warn("Error", e);
-            }
-            finally{
-                log.info("spentCoins ${spentCoins.size}")
-                spentCoins.forEach{it -> log.info("spent ${it}")}
-                tokenClaim.useAndRelease(spentCoins)
-            }
-        }
         return "ok"
     }
 
     @Suspendable
-    private fun transfer(claimedTokens: List<ClaimedToken>, receiverAccount: String, otherNode: MemberInfo, notary: MemberX500Name, newParticipants: List<PublicKey>): List<StateRef>{
+    //private fun transfer(claimedTokens: List<ClaimedToken>, receiverAccount: String, otherNode: MemberInfo, notary: MemberX500Name, newParticipants: List<PublicKey>): List<StateRef>{
+    private fun transfer(claimedTokens: List<ClaimedToken>, otherNode: MemberInfo, notary: MemberX500Name, newParticipants: List<PublicKey>): List<StateRef>{
+
         log.info("in transfer fun")
         val output = mutableListOf<StateRef>();
         //val sessions = mutableListOf<FlowSession>()
@@ -270,7 +281,9 @@ class TransferTokensFlow : ClientStartableFlow {
             val inputState:StateRef = it.stateRef
             val ipt: StateAndRef<Token> = ledgerService.resolve(inputState)
             /** Construct output (new) state of the token */
-            val outputState: Token = ipt.state.contractState.transfer( newOwner = toSecureHash(receiverAccount, digestService), newParticipants = newParticipants)
+            //val outputState: Token = ipt.state.contractState.transfer( newOwner = toSecureHash(receiverAccount, digestService), newParticipants = newParticipants)
+            val outputState: Token = ipt.state.contractState.transfer( newOwner = toSecureHash(otherNode.name, digestService), newParticipants = newParticipants)
+
             tokenOutputStates.add(outputState);
         }
             /** We need the initial state of the token */
@@ -282,12 +295,12 @@ class TransferTokensFlow : ClientStartableFlow {
             //val ipt: StateAndRef<Token> = ledgerService.resolve(inputState)
 
             /** We need the initial state of the receiver account */
-            val rcvAccount = flowEngine.subFlow(GetAccountFlowInternal(receiverAccount))
-            val inputAccState: TransactionState<AccountState> = rcvAccount.state
+            //val rcvAccount = flowEngine.subFlow(GetAccountFlowInternal(receiverAccount))
+            //val inputAccState: TransactionState<AccountState> = rcvAccount.state
 
 
             /** Construct output state of the account (for each token added to account) */
-            val accOtptState = inputAccState.contractState.modifyBalance(symbol = tokenOutputStates[0].symbol, amount = BigDecimal( claimedTokens.size ) )
+            //val accOtptState = inputAccState.contractState.modifyBalance(symbol = tokenOutputStates[0].symbol, amount = BigDecimal( claimedTokens.size ) )
 
             val txBuilder2: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
                 //.setNotary(ipt.state.notary.name)
@@ -305,22 +318,19 @@ class TransferTokensFlow : ClientStartableFlow {
             //val finalizedSignedTx = ledgerService.finalize(stx1, listOf(session))
 
 
-            log.warn("notary $notary ,  accnotary: ${rcvAccount.state}")
+            //log.warn("notary $notary ,  accnotary: ${rcvAccount.state}")
 
             /** Construct transaction */
-            val txBuilder: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
+            /*val txBuilder: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
                 .setNotary(notary)
-                //.setNotary(rcvAccount.state.notary.name)
-                //.addInputState(inputState)
-                .addInputState(rcvAccount.ref)
+                //.addInputState(rcvAccount.ref)
                 .addCommand(AccountContract.Update())
-                //.addOutputState(outputState)
-                .addOutputState(accOtptState)
+                //.addOutputState(accOtptState)
                 .setTimeWindowBetween(Instant.now(), Instant.now().plus(1, ChronoUnit.DAYS))
-                .addSignatories(newParticipants)
+                .addSignatories(newParticipants)*/
 
-            val signedTx = txBuilder.toSignedTransaction()
-            flowEngine.subFlow(UpdateAccountFlow(signedTx, otherNode))
+            //val signedTx = txBuilder.toSignedTransaction()
+            //flowEngine.subFlow(UpdateAccountFlow(signedTx, otherNode))
             //val session2:FlowSession = flowMessaging.initiateFlow(otherNode.name)
             //val finalizedSignedTx2 = ledgerService.finalize(signedTx, listOf(session2))
 

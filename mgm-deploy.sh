@@ -45,14 +45,13 @@ mv ./mgm-1.0-SNAPSHOT-package.cpb mgm.cpb
 echo "\n---Build and upload MGM CPI---"
 cd "$WORK_DIR_ABS"
 #Run this command to turn a CPB into a CPI
-#sh ~/.corda/cli/corda-cli.sh package create-cpi --cpb mgm.cpb --group-policy MgmGroupPolicy.json --cpi-name "cpi name" --cpi-version "1.0.0.0-SNAPSHOT" --file mgm.cpi --keystore signingkeys.pfx --storepass "keystore password" --key "signing key 1"
 rm -f mgm.cpi
 sh ~/.corda/cli/corda-cli.sh package create-cpi --cpb mgm.cpb --group-policy MgmGroupPolicy.json --cpi-name "cpi name" --cpi-version "1.0.0.0-SNAPSHOT" --file mgm.cpi --keystore signingkeys.pfx --storepass "keystore password" --key "kdk"
 #Import the gradle plugin default key into Corda
 echo "\n---Upload gradle default plugin key into corda---"
 curl --insecure -u admin:admin -X PUT -F alias="gradle-plugin-default-key" -F certificate=@gradle-plugin-default-key.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
 echo "\n---Upload kdk signing key into corda---"
-keytool -exportcert -rfc -alias "kdk" -keystore signingkeys.pfx -storepass "keystore password" -file signingkey1.pem
+#keytool -exportcert -rfc -alias "kdk" -keystore signingkeys.pfx -storepass "keystore password" -file signingkey1.pem
 #curl --insecure -u admin:admin -X PUT -F alias="kdk" -F certificate=@signingkey1.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
 
 #Export the signing key certificate from the key store
@@ -62,10 +61,10 @@ keytool -exportcert -rfc -alias "kdk" -keystore signingkeys.pfx -storepass "keys
 
 
 #Import the signing key into Corda
-curl --insecure -u admin:admin -X PUT -F alias="KDK" -F certificate=@signingkey1.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
+curl --insecure -u admin:admin -X PUT -F alias="kdk" -F certificate=@signingkey.cert.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
 
 echo "\n---Upload ca key into corda---"
-curl --insecure -u admin:admin -X PUT -F alias="ca" -F certificate=@ca-chain.cert.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
+curl --insecure -u admin:admin -X PUT -F alias="intermediateCa" -F certificate=@ca-chain.cert.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
 curl --insecure -u admin:admin -X PUT -F alias="rootca" -F certificate=@ca.cert.pem https://localhost:8888/api/v1/certificates/cluster/code-signer
 
 CPI_PATH=./mgm.cpi
@@ -110,8 +109,8 @@ echo "\n---Fetching xxx from Corda---"
 curl -k -u admin:admin  -X POST -H "Content-Type: application/json" -d '{"x500Name": "CN=Kela, C=FI, L=Helsinki, O=Inno", "subjectAlternativeNames": ["'$P2P_GATEWAY_HOST'"]}' $API_URL"/certificates/p2p/"$TLS_KEY_ID > "$WORK_DIR_ABS"/request1.csr
 
 read -p "Wait for download to be finished, Then press any key to continue..." ANY
-cd "$RUNTIME_OS_ABS"
-java -jar ./applications/tools/p2p-test/fake-ca/build/bin/corda-fake-ca-5.0.0.0-SNAPSHOT.jar -m /tmp/ca csr "$WORK_DIR_ABS"/request1.csr
+#cd "$RUNTIME_OS_ABS"
+#java -jar ./applications/tools/p2p-test/fake-ca/build/bin/corda-fake-ca-5.0.0.0-SNAPSHOT.jar -m /tmp/ca csr "$WORK_DIR_ABS"/request1.csr
 cd $WORK_DIR_ABS
 echo $PWD
 #echo "\n---Create certificate request---"
@@ -143,22 +142,19 @@ echo "\n---Register MGM---"
 TLS_CA_CERT=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' ~/myCA/intermediateCA/certs/intermediate.cert.pem)
 TLS_CAROOT_CERT=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' ~/myCA/rootCA/certs/ca.cert.pem)
 
-#REGISTRATION_CONTEXT='{
-#  "corda.session.key.id": "'$SESSION_KEY_ID'",
-#  "corda.ecdh.key.id": "'$ECDH_KEY_ID'",
-#  "corda.group.protocol.registration": "net.corda.membership.impl.registration.dynamic.member.DynamicMemberRegistrationService",
-#  "corda.group.protocol.synchronisation": "net.corda.membership.impl.synchronisation.MemberSynchronisationServiceImpl",
-#  "corda.group.protocol.p2p.mode": "Authenticated_Encryption",
-#  "corda.group.key.session.policy": "Combined",
-#  "corda.group.pki.session": "NoPKI",
-#  "corda.group.pki.tls": "Standard",
-#  "corda.group.tls.version": "1.3",
-#  "corda.endpoints.0.connectionURL": "https://'$P2P_GATEWAY_HOST':'$P2P_GATEWAY_PORT'",
-#  "corda.endpoints.0.protocolVersion": "1",
-#  "corda.group.truststore.tls.0" : "'$TLS_CA_CERT'"
-#}'
-REGISTRATION_CONTEXT='{"corda.session.keys.0.id": "'$SESSION_KEY_ID'", "corda.ecdh.key.id": "'$ECDH_KEY_ID'", "corda.group.protocol.registration": "net.corda.membership.impl.registration.dynamic.member.DynamicMemberRegistrationService", "corda.group.protocol.synchronisation": "net.corda.membership.impl.synchronisation.MemberSynchronisationServiceImpl", "corda.group.protocol.p2p.mode": "Authenticated_Encryption", "corda.group.key.session.policy": "Combined", "corda.group.pki.session": "NoPKI", "corda.group.pki.tls": "Standard", "corda.group.tls.version": "1.3", "corda.endpoints.0.connectionURL": "https://'$P2P_GATEWAY_HOST':'$P2P_GATEWAY_PORT'", "corda.endpoints.0.protocolVersion": "1", "corda.group.trustroot.tls.0": "'$TLS_CA_CERT'", "corda.group.trustroot.tls.1": "'$TLS_CAROOT_CERT'"}'
-#REGISTRATION_REQUEST='{"memberRegistrationRequest":{"action": "requestJoin", "context": '$REGISTRATION_CONTEXT'}}'
+REGISTRATION_CONTEXT='{"corda.session.keys.0.id": "'$SESSION_KEY_ID'",
+ "corda.ecdh.key.id": "'$ECDH_KEY_ID'",
+ "corda.group.protocol.registration": "net.corda.membership.impl.registration.dynamic.member.DynamicMemberRegistrationService",
+ "corda.group.protocol.synchronisation": "net.corda.membership.impl.synchronisation.MemberSynchronisationServiceImpl",
+ "corda.group.protocol.p2p.mode": "Authenticated_Encryption",
+ "corda.group.key.session.policy": "Combined",
+ "corda.group.pki.session": "NoPKI",
+ "corda.group.pki.tls": "Standard",
+ "corda.group.tls.version": "1.3",
+ "corda.endpoints.0.connectionURL": "https://'$P2P_GATEWAY_HOST':'$P2P_GATEWAY_PORT'",
+ "corda.endpoints.0.protocolVersion": "1",
+ "corda.group.trustroot.tls.0": "'$TLS_CA_CERT'",
+ "corda.group.trustroot.tls.1": "'$TLS_CAROOT_CERT'"}'
 REGISTRATION_REQUEST='{"memberRegistrationRequest":{"context":'$REGISTRATION_CONTEXT'}}'
 
 curl --insecure -u admin:admin -d "$REGISTRATION_REQUEST" $API_URL/membership/$MGM_HOLDING_ID

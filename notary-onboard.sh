@@ -10,10 +10,15 @@ WORK_DIR=./register-mgm
 RUNTIME_OS=../../corda-runtime-os
 
 
+
+
 echo "\n---Build and upload Notary CPI---"
 cd $WORK_DIR
 WORK_DIR_ABS=$PWD
-cp ./notary.cpb ./register-member
+curl --insecure -u admin:admin -X PUT -F certificate=@beta-r3.pem -F alias=beta-r3 $API_URL/certificates/cluster/code-signer
+
+rm -f notary.cpb
+cp ./notary-plugin-non-validating-server-5.0.0.0-Hawk1.0.1-package.cpb ./register-member/notary.cpb
 cd "$WORK_DIR_ABS/register-member/"
 ##Run this command to turn a CPB into a CPI
 rm -f notary.cpi
@@ -84,7 +89,7 @@ echo "NOTARY_SERVICE_NAME:" $NOTARY_SERVICE_NAME
 
 REGISTRATION_CONTEXT='{
   "corda.session.keys.0.id": "'$SESSION_KEY_ID'",
-  "corda.session.key.signature.spec": "SHA256withECDSA",
+  "corda.session.keys.0.signature.spec": "SHA256withECDSA",
   "corda.ledger.keys.0.id": "'$LEDGER_KEY_ID'",
   "corda.ledger.keys.0.signature.spec": "SHA256withECDSA",
   "corda.notary.keys.0.id": "'$NOTARY_KEY_ID'",
@@ -93,7 +98,8 @@ REGISTRATION_CONTEXT='{
   "corda.endpoints.0.protocolVersion": "1",
   "corda.roles.0" : "notary",
   "corda.notary.service.name" : "'$NOTARY_SERVICE_NAME'",
-  "corda.notary.service.plugin" : "net.corda.notary.NonValidatingNotary"
+  "corda.notary.service.flow.protocol.name" : "com.r3.corda.notary.plugin.nonvalidating",
+  "corda.notary.service.flow.protocol.version.0": "1"
 }'
 
 #REGISTRATION_CONTEXT='{

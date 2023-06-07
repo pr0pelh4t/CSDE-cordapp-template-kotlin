@@ -1,6 +1,5 @@
 package fi.kela.flows
 
-import com.r3.developers.csdetemplate.flowexample.workflows.Message
 import fi.kela.contracts.TokenContract
 import fi.kela.states.Token
 import fi.kela.utils.Constants.Companion.ISSUER_X500_NAME
@@ -97,11 +96,14 @@ class IssueTokensFlow : ClientStartableFlow {
                 tkns.add(mintToken);
                 //flowEngine.subFlow(IssueTokenFlow())
             //}
+            log.warn("minted tokens: $tkns")
 
             //val tokenTypeStateAndRef = serviceHub.findTokenTypesIssuesByMe(symbol)
             //val tokenIssuance = TokenContract.generateIssuance(serviceHub, amount.toString(), tokenTypeStateAndRef, accountId, ourIdentity)
 
             val notary: NotaryInfo = notaryLookup.notaryServices.single()
+            log.warn("notary: $notary")
+
             /*
             /** Initial state of our token */
             val mintToken = Token(
