@@ -19,13 +19,15 @@ import net.corda.v5.crypto.SecureHash
 import net.corda.v5.ledger.utxo.StateAndRef
 import net.corda.v5.ledger.utxo.UtxoLedgerService
 import org.slf4j.LoggerFactory
+import java.math.BigDecimal
 import java.util.UUID
 
 class GetTokensRequest(val accountId: UUID)
 
 class TokensResult(val currency: String,
-                    val symbol: String,
-                    val ownerHash: SecureHash?
+                   val symbol: String,
+                   val ownerHash: SecureHash?,
+                   val amount: BigDecimal
 )
 
 class GetTokensFlow : ClientStartableFlow {
@@ -50,18 +52,19 @@ class GetTokensFlow : ClientStartableFlow {
         val flowArgs: GetTokensRequest = requestBody.getRequestBodyAs(jsonMarshallingService, GetTokensRequest::class.java)
         val states = ledgerService.findUnconsumedStatesByType(Token::class.java)
         val issuer = memberLookup.lookup(MemberX500Name.parse(Constants.ISSUER_X500_NAME))
-
+        val myInfo = memberLookup.myInfo()
         if(null == issuer){
             throw CordaRuntimeException("No issuer found")
         }
         states.forEach{ it: StateAndRef<Token>? -> log.warn("token ${it?.state?.contractState}")}
 
-        val filtered = states.filter{it -> it.state.contractState.ownerHash == toSecureHash(issuer.name, digestService)}
+        val filtered = states.filter{it -> it.state.contractState.ownerHash == toSecureHash(myInfo.name, digestService)}
         val results = filtered.map {
             TokensResult(
                 it.state.contractState.currency,
                 it.state.contractState.symbol,
-                it.state.contractState.ownerHash) }
+                it.state.contractState.ownerHash,
+                it.state.contractState.value) }
         results.forEach{ it:TokensResult -> log.warn("token ${it.symbol}")}
         //val result = results.singleOrNull {it.id == flowArgs.id}
         //    ?: throw CordaRuntimeException("Did not find an unique unconsumed Account with id ${flowArgs.id}")
@@ -71,7 +74,7 @@ class GetTokensFlow : ClientStartableFlow {
     }
 }
 
-class GetTokensFlowInternal(private val accountId: UUID) : SubFlow<StateAndRef<Token>> {
+class GetTokensFlowInternal(private val owner: String) : SubFlow<List<StateAndRef<Token>>> {
 
     @CordaInject
     lateinit var ledgerService: UtxoLedgerService
@@ -83,10 +86,10 @@ class GetTokensFlowInternal(private val accountId: UUID) : SubFlow<StateAndRef<T
     lateinit var digestService: DigestService
 
     @Suspendable
-    override fun call(): StateAndRef<Token>{
+    override fun call(): List<StateAndRef<Token>>{
         val states: List<StateAndRef<Token>> = ledgerService.findUnconsumedStatesByType(Token::class.java)
-        val result = states.singleOrNull {it:StateAndRef<Token> -> it.state.contractState.ownerHash == toSecureHash(accountId.toString(), digestService)}
-            ?: throw CordaRuntimeException("Did not find an unique unconsumed ChatState with id $accountId")
+        val result = states.filter {it:StateAndRef<Token> -> it.state.contractState.ownerHash == toSecureHash(owner, digestService)}
+            ?: throw CordaRuntimeException("Did not find an unique unconsumed Token state for member $owner")
 
         return result
 

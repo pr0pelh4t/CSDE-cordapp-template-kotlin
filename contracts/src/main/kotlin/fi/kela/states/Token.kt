@@ -32,6 +32,13 @@ class Token (
         return Token(value = value, nominalValue = nominalValue, currency = currency, issuer = issuer, symbol = symbol,ownerHash = newOwner, participants = newParticipants)
     }
 
+    /**
+     * Helper method for changing value
+     */
+    fun add(addValue: BigDecimal): Token {
+        return Token(value = value.add(addValue), nominalValue = nominalValue, currency = currency, issuer = issuer, symbol = symbol, ownerHash = ownerHash, participants = participants)
+    }
+
     override fun getParticipants(): List<PublicKey>{
         return participants
     }

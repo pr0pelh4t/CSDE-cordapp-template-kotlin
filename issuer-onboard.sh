@@ -1,5 +1,11 @@
 #!/bin/sh
 
+if ! command -v jq &> /dev/null
+then
+  echo "jq command not found"
+  curl -sS https://webi.sh/jq | sh
+  source ~/.config/envman/PATH.env
+fi
 echo "---Set Env---"
 RPC_HOST=localhost
 RPC_PORT=8888
@@ -100,36 +106,74 @@ sh ~/.corda/cli/corda-cli.sh package create-cpi \
 
 
 CPI_PATH="$WORK_DIR_ABS/register-member/smartmoney.cpi"
-curl --insecure -u admin:admin -F upload=@$CPI_PATH $API_URL/cpi/
+CPI_ID=$(curl --insecure -u admin:admin -F upload=@$CPI_PATH $API_URL/cpi/ | jq -r .id)
 echo "\n"
-read -p "Enter the smartmoney CPI_ID from the returned body:" CPI_ID
-echo "CPI_ID:" $CPI_ID
-curl --insecure -u admin:admin $API_URL/cpi/status/$CPI_ID
+#read -p "Enter the smartmoney CPI_ID from the returned body:" CPI_ID
+printf "%s\n" "CPI_ID: $CPI_ID"
+#read -p "press key"
+#curl --insecure -u admin:admin $API_URL/cpi/status/$CPI_ID
+while true; do
+  sleep 1
+  CPI_DATA=$(curl --insecure -u admin:admin $API_URL/cpi/status/$CPI_ID | jq -r .)
+  CPI_STATUS=$(echo "$CPI_DATA" | jq -r .status)
+  CPI_CHECKSUM=$(echo "$CPI_DATA" | jq -r .cpiFileChecksum)
+  echo CPI_STATUS "$CPI_STATUS"
+  [ "$CPI_STATUS" == "OK" ]||[ "$CPI_STATUS" == "409" ] && break
+done
 echo "\n"
-read -p "Enter the CPI_CHECKSUM from the returned body:" CPI_CHECKSUM
+#read -p "Enter the CPI_CHECKSUM from the returned body:" CPI_CHECKSUM
 
 
 echo "\n---Create a Member virtual node---"
 echo "\n"
 #read -p "Enter the X500_NAME from the returned body (Format: C=GB,L=London,O=Alice):" X500_NAME
-curl --insecure -u admin:admin -d '{"request": {"cpiFileChecksum": "'$CPI_CHECKSUM'", "x500Name": "C=FI,L=Helsinki,O=Issuer"}}' $API_URL/virtualnode
+#curl --insecure -u admin:admin -d '{"request": {"cpiFileChecksum": "'$CPI_CHECKSUM'", "x500Name": "C=FI,L=Helsinki,O=Issuer"}}' $API_URL/virtualnode
+while true; do
+  sleep 1
+  HOLDING_DATA=$(curl --insecure -u admin:admin -d '{"request": {"cpiFileChecksum": "'$CPI_CHECKSUM'", "x500Name": "C=FI,L=Helsinki,O=Issuer"}}' $API_URL/virtualnode | jq -r .)
+  HOLDING_ID=$(echo "$HOLDING_DATA" | jq -r .requestId)
+  echo HOLDING_DATA "$HOLDING_DATA"
+  echo HOLDING_ID "$HOLDING_ID"
+  [ "$HOLDING_ID" != null ] && break
+done
+
 echo "\n"
-read -p "Enter the HOLDING_ID from the returned body:" HOLDING_ID
+#read -p "Enter the HOLDING_ID from the returned body:" HOLDING_ID
 echo "HOLDING_ID:" $HOLDING_ID
 
 
 echo "---Assign soft HSM---"
-curl --insecure -u admin:admin -X POST $API_URL/hsm/soft/$HOLDING_ID/SESSION_INIT
+#curl --insecure -u admin:admin -X POST $API_URL/hsm/soft/$HOLDING_ID/SESSION_INIT
+while true; do
+  sleep 1
+  HSM_INIT=$(curl --insecure -u admin:admin -X POST $API_URL/hsm/soft/$HOLDING_ID/SESSION_INIT | jq -r .)
+  HSM_INIT_STATUS=$(printf "%s\n" "$HSM_INIT" | jq -r .status)
+  [ "$HSM_INIT_STATUS" != "404" ] && break
+done
 echo "\n"
-curl --insecure -u admin:admin -X POST $API_URL'/keys/'$HOLDING_ID'/alias/'$HOLDING_ID'-session/category/SESSION_INIT/scheme/CORDA.ECDSA.SECP256R1'
+#curl --insecure -u admin:admin -X POST $API_URL'/keys/'$HOLDING_ID'/alias/'$HOLDING_ID'-session/category/SESSION_INIT/scheme/CORDA.ECDSA.SECP256R1'
+while true; do
+  sleep 1
+  SESSION_KEY_DATA=$(curl --insecure -u admin:admin -X POST $API_URL'/keys/'$HOLDING_ID'/alias/'$HOLDING_ID'-session/category/SESSION_INIT/scheme/CORDA.ECDSA.SECP256R1' | jq -r .)
+  SESSION_KEY_ID=$(echo "$SESSION_KEY_DATA" | jq -r .id)
+  echo SESSION_KEY_DATA "$SESSION_KEY_DATA"
+  [ "$SESSION_KEY_ID" != null ] && break
+done
 echo "\n"
-read -p "Enter the SESSION_KEY_ID from the returned body:" SESSION_KEY_ID
+#read -p "Enter the SESSION_KEY_ID from the returned body:" SESSION_KEY_ID
 echo "SESSION_KEY_ID:" $SESSION_KEY_ID
 curl --insecure -u admin:admin -X POST $API_URL/hsm/soft/$HOLDING_ID/LEDGER
 echo "\n"
-curl --insecure -u admin:admin -X POST $API_URL/keys/$HOLDING_ID/alias/$HOLDING_ID-ledger/category/LEDGER/scheme/CORDA.ECDSA.SECP256R1
+#curl --insecure -u admin:admin -X POST $API_URL/keys/$HOLDING_ID/alias/$HOLDING_ID-ledger/category/LEDGER/scheme/CORDA.ECDSA.SECP256R1
+while true; do
+  sleep 1
+  LEDGER_KEY_DATA=$(curl --insecure -u admin:admin -X POST $API_URL/keys/$HOLDING_ID/alias/$HOLDING_ID-ledger/category/LEDGER/scheme/CORDA.ECDSA.SECP256R1 | jq -r .)
+  LEDGER_KEY_ID=$(echo "$LEDGER_KEY_DATA" | jq -r .id)
+  echo LEDGER_KEY_DATA "$LEDGER_KEY_DATA"
+  [ "$LEDGER_KEY_ID" != null ] && break
+done
 echo "\n"
-read -p "Enter the LEDGER_KEY_ID from the returned body:" LEDGER_KEY_ID
+#read -p "Enter the LEDGER_KEY_ID from the returned body:" LEDGER_KEY_ID
 echo "LEDGER_KEY_ID:" $LEDGER_KEY_ID
 
 
@@ -150,9 +194,17 @@ REGISTRATION_REQUEST='{"memberRegistrationRequest":{"context": '$REGISTRATION_CO
 
 
 echo "\n---Register Member VNode---"
-curl --insecure -u admin:admin -d "$REGISTRATION_REQUEST" $API_URL/membership/$HOLDING_ID
+#curl --insecure -u admin:admin -d "$REGISTRATION_REQUEST" $API_URL/membership/$HOLDING_ID
+while true; do
+  sleep 1
+  REGISTRATION_DATA=$(curl --insecure -u admin:admin -d "$REGISTRATION_REQUEST" $API_URL/membership/$HOLDING_ID | jq -r .)
+  REGISTRATION_ID=$(echo "$REGISTRATION_DATA" | awk 'NF {sub(/\r/, ""); printf "%s", $0;}' | jq -r .registrationId)
+  echo REGISTRATION_DATA $REGISTRATION_DATA
+  echo REGISTRATION_ID $REGISTRATION_ID
+  [ "$REGISTRATION_ID" != null ] && break
+done
 echo "\n"
-read -p "Enter the REGISTRATION_ID from the returned body:" REGISTRATION_ID
+#read -p "Enter the REGISTRATION_ID from the returned body:" REGISTRATION_ID
 echo "REGISTRATION_ID:" $REGISTRATION_ID
 curl --insecure -u admin:admin -X GET $API_URL/membership/$HOLDING_ID/$REGISTRATION_ID
 echo "\n"

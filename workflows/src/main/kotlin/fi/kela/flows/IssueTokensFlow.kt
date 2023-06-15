@@ -16,6 +16,7 @@ import net.corda.v5.base.types.MemberX500Name
 import net.corda.v5.crypto.DigestAlgorithmName
 import net.corda.v5.crypto.SecureHash
 import net.corda.v5.ledger.common.NotaryLookup
+import net.corda.v5.ledger.utxo.StateAndRef
 import net.corda.v5.ledger.utxo.StateRef
 import net.corda.v5.ledger.utxo.UtxoLedgerService
 import net.corda.v5.ledger.utxo.token.selection.TokenClaimCriteria
@@ -28,7 +29,7 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
-class IssueTokensRequest (val amount: Int, val newOwner: String?)
+class IssueTokensRequest (val amount: Int, val newOwner: String)
 
 
 /**
@@ -66,84 +67,89 @@ class IssueTokensFlow : ClientStartableFlow {
         val req: IssueTokensRequest = requestBody.getRequestBodyAs(jsonMarshallingService, IssueTokensRequest::class.java)
         val amount = req.amount;
         val newOwner = req.newOwner;
+        val newOwnerNode = memberLookup.lookup(MemberX500Name.parse(newOwner));
+        val notary: NotaryInfo = notaryLookup.notaryServices.single()
+
         log.warn("issuing $amount tokens")
         return try {
-            //val kela = memberLookup.lookup(MemberX500Name.parse(KELA_X500_NAME));
             val issuer = memberLookup.lookup(MemberX500Name.parse(ISSUER_X500_NAME))
             val ourIdentity = memberLookup.myInfo()
 
-            //if((null == issuer || issuer.name != ourIdentity.name)) {
             if(null == issuer) {
 
                     throw CordaRuntimeException("Only an issuer can initiate this flow.")
             }
 
-            /*if((null==kela)){
-                throw CordaRuntimeException("Need Kela in this flow.")
-            }*/
+            if(null == newOwnerNode){
+                throw CordaRuntimeException("could not find receiver node in ledger")
+            }
+
             val tkns = mutableListOf<Token>()
-            //for(i in  1..amount){
-                //log.warn("$i");
+            var existingTokens = listOf<StateAndRef<Token>>()
+            /**
+             * Check if the receiver already owns same type of tokens
+             **/
+            if(newOwner !== null) {
+                existingTokens = flowEngine.subFlow(GetTokensFlowInternal(newOwner));
+
+            }
+            if(!existingTokens.isEmpty()) {
+                /**
+                 * Existing balance for the token type being issued
+                 */
+                log.warn("existingTokens $existingTokens tokens")
+                log.warn("should update existing token value")
+
+                val token = existingTokens.first{it -> it.state.contractState.symbol === "HNT"}
+                /** Create a new state with the issuance amount */
+                val output = token.state.contractState.add(BigDecimal(amount))
+                val issuance: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
+                    .setNotary(notary.name)
+                    .addInputState(token.ref)
+                    .addOutputStates(output)
+                    .addCommand(TokenContract.Issue())
+                    .setTimeWindowBetween(Instant.now(), Instant.now().plus(1, ChronoUnit.DAYS))
+                    .addSignatories(ourIdentity.ledgerKeys.first(), newOwnerNode.ledgerKeys.first())
+                log.warn("--- Created issuance: $issuance ---")
+                val signedIssuance = issuance.toSignedTransaction();
+                log.warn("issuance signed");
+
+                flowEngine.subFlow(FinalizeTokensIssueSubFlow(signedIssuance, listOf()))
+                return "Success?"
+            }else {
+                /**
+                 * Not existing balance for issued token.
+                 * Create a state for a mint(new) token
+                 */
                 val mintToken = Token(
                     symbol = "HNT",
                     currency = "EUR",
-                    value= BigDecimal(amount),
+                    value = BigDecimal(amount),
                     nominalValue = BigDecimal.valueOf(1),
                     issuer = issuer.name.toSecureHash(),
                     participants = listOf(issuer.ledgerKeys.first(), ourIdentity.ledgerKeys.first()),
                     ownerHash = newOwner?.toSecureHash()
                 );
                 tkns.add(mintToken);
-                //flowEngine.subFlow(IssueTokenFlow())
-            //}
-            log.warn("minted tokens: $tkns")
 
-            //val tokenTypeStateAndRef = serviceHub.findTokenTypesIssuesByMe(symbol)
-            //val tokenIssuance = TokenContract.generateIssuance(serviceHub, amount.toString(), tokenTypeStateAndRef, accountId, ourIdentity)
+                log.warn("minted tokens: $tkns")
 
-            val notary: NotaryInfo = notaryLookup.notaryServices.single()
-            log.warn("notary: $notary")
+                log.warn("notary: $notary")
 
-            /*
-            /** Initial state of our token */
-            val mintToken = Token(
-                    currency = "EUR",
-                    value= BigDecimal.valueOf(1),
-                    issuer = issuer.name.toSecureHash(),
-                    participants = listOf(issuer.ledgerKeys.first(), kela.ledgerKeys.first())
-            );*/
-            val issuance: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
-                .setNotary(notary.name)
-                .addOutputStates(tkns)
-                .addCommand(TokenContract.Issue())
-                .setTimeWindowBetween(Instant.now(), Instant.now().plus(1, ChronoUnit.DAYS))
-                .addSignatories(ourIdentity.ledgerKeys.first())
+                val issuance: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
+                    .setNotary(notary.name)
+                    .addOutputStates(tkns)
+                    .addCommand(TokenContract.Issue())
+                    .setTimeWindowBetween(Instant.now(), Instant.now().plus(1, ChronoUnit.DAYS))
+                    .addSignatories(ourIdentity.ledgerKeys.first())
 
-            val signedIssuance = issuance.toSignedTransaction();
-            log.warn("issuance signed");
+                val signedIssuance = issuance.toSignedTransaction();
+                log.warn("issuance signed");
 
-            flowEngine.subFlow(FinalizeTokensIssueSubFlow(signedIssuance, listOf()))
+                flowEngine.subFlow(FinalizeTokensIssueSubFlow(signedIssuance, listOf()))
 
-
-            /*val selectionCriteria = TokenClaimCriteria(
-                Token.tokenType,
-                issuer.name.toSecureHash(),
-                notary.name,
-                "EUR",
-                BigDecimal(10)
-            )
-
-            val tokenClaim = tokenSelection.tryClaim(selectionCriteria);
-
-            if(tokenClaim == null) {
-                return "FAILED TO FIND ENOUGH TOKENS"
+                return "Success?"
             }
-
-            log.warn("*** TOKEN CLAIM ***")
-            log.warn(tokenClaim.toString())
-
-            var spentCoins = listOf<StateRef>()*/
-            return "Success?"
         } catch (ex: Exception) {
             return "Error $ex"
         }
