@@ -4,6 +4,7 @@ import fi.kela.contracts.TokenContract
 import fi.kela.states.Token
 import fi.kela.utils.Constants.Companion.ISSUER_X500_NAME
 import fi.kela.utils.Constants.Companion.KELA_X500_NAME
+import fi.kela.utils.Utils
 import net.corda.v5.application.crypto.DigestService
 import net.corda.v5.application.flows.*
 import net.corda.v5.application.marshalling.JsonMarshallingService
@@ -19,6 +20,7 @@ import net.corda.v5.ledger.common.NotaryLookup
 import net.corda.v5.ledger.utxo.StateAndRef
 import net.corda.v5.ledger.utxo.StateRef
 import net.corda.v5.ledger.utxo.UtxoLedgerService
+import net.corda.v5.ledger.utxo.token.selection.TokenClaim
 import net.corda.v5.ledger.utxo.token.selection.TokenClaimCriteria
 import net.corda.v5.ledger.utxo.token.selection.TokenSelection
 import net.corda.v5.ledger.utxo.transaction.UtxoSignedTransaction
@@ -100,6 +102,26 @@ class IssueTokensFlow : ClientStartableFlow {
                 log.warn("existingTokens $existingTokens tokens")
                 log.warn("should update existing token value")
 
+                val issuerHash = Utils.toSecureHash(issuer.name, digestService)
+                val selectionCriteria = TokenClaimCriteria(
+                    "HNT",
+                    issuerHash,
+                    notary.name,
+                    "EUR",
+                    BigDecimal(amount)
+                )
+                var tokenClaim: TokenClaim? = null
+
+                tokenClaim = tokenSelection.tryClaim(selectionCriteria);
+                if(tokenClaim == null) {
+                    return "FAILED TO FIND ENOUGH TOKENS"
+                }
+
+                log.warn("*** TOKEN CLAIM ***")
+                log.warn(tokenClaim.toString())
+                tokenClaim.claimedTokens.forEach{it -> log.info("claimed ${it}")}
+                val totalAmount = tokenClaim.claimedTokens.stream().map{ it -> it.amount }.reduce(BigDecimal.ZERO, BigDecimal::add);
+                log.warn("total $totalAmount")
                 val token = existingTokens.first{it -> it.state.contractState.symbol === "HNT"}
                 /** Create a new state with the issuance amount */
                 val output = token.state.contractState.add(BigDecimal(amount))

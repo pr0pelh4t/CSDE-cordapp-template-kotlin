@@ -90,4 +90,4 @@ register-mgm/*.json
 register-mgm/*.pem
 register-mgm/*.csr
 register-mgm/*.pfx
-register-mgm/register-member
+register-mgm/register-member/**
