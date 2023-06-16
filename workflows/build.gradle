@@ -6,6 +6,7 @@ plugins {
     id 'net.corda.plugins.cordapp-cpb2'
     id 'org.jetbrains.kotlin.jvm'
     id 'maven-publish'
+//    id 'org.jetbrains.kotlin.jvm' version '1.8.21'
 }
 
 // Declare dependencies for the modules we will use.
@@ -40,11 +41,6 @@ dependencies {
     // The CorDapp uses the slf4j logging framework. Corda-API provides this so we need a 'cordaProvided' declaration.
     cordaProvided 'org.slf4j:slf4j-api'
 
-    // Dependencies Required By Simulator Tests
-    // Todo:  these are commented out as the simulator UTXO work has not been merged into Gecko yet.
-//    testImplementation "net.corda:corda-simulator-api:$simulatorVersion"
-//    testRuntimeOnly "net.corda:corda-simulator-runtime:$simulatorVersion"
-
     // 3rd party libraries
     // Required
     testImplementation "org.slf4j:slf4j-simple:2.0.0"
@@ -55,6 +51,7 @@ dependencies {
     testImplementation "org.mockito:mockito-core:$mockitoVersion"
     testImplementation "org.mockito.kotlin:mockito-kotlin:$mockitoKotlinVersion"
     testImplementation "org.hamcrest:hamcrest-library:$hamcrestVersion"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
 
 }
 
@@ -70,13 +67,24 @@ cordapp {
     // The platform version will correspond to and be roughly equivalent to the Corda API version.
     targetPlatformVersion = platformVersion.toInteger()
     minimumPlatformVersion = platformVersion.toInteger()
+    /*signing {
+        enabled = true
+        // These options presumably mirror Ant's signJar task options.
+        options {
+            alias = 'kdk'
+            storePassword = 'keystore password'
+            keyStore = file('../register-mgm/signingkeys3.pfx')
+            storeType= 'PKCS12'
+            verbose = true
 
+        }
+    }*/
     // The cordapp section contains either a workflow or contract subsection depending on the type of component.
     // Declares the type and metadata of the CPK (this CPB has one CPK).
     workflow {
-        name "WorkflowsModuleNameHere"
+        name "SmartMoney"
         versionId 1
-        vendor "VendorNameHere"
+        vendor "Kela"
     }
 }
 
@@ -85,5 +93,18 @@ publishing {
         maven(MavenPublication) {
             from components.cordapp
         }
+    }
+}
+repositories {
+    mavenCentral()
+}
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+compileTestKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
     }
 }

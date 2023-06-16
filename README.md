@@ -1,4 +1,20 @@
-# CSDE-cordapp-template-kotlin
+# KLAB-Custom CSDE-cordapp-template-kotlin
+
+## Flavored with dynamic network setup scripts
+
+### Running the provided dynamic network
+1. ./gradlew startCorda
+2. ./generate_certs.sh
+3. ./mgm-deploy.sh
+4. ./notary-onboard.sh
+5. ./issuer-onboard.sh
+
+These scripts make setting up your own dynamic network on top of the CSDE bundled worker a breeze. Almost as easy as running the CSDE static network but with the additional benefits and flexibility of a truly dynamic network configuration. 
+
+### Update history
+```
+15.6.2023 - Initial "one click" versions of the setup scripts
+```
 
 
 To help make the process of prototyping CorDapps on Corda 5 release more straight forward we have developed the Cordapp Standard Development Environment (CSDE).

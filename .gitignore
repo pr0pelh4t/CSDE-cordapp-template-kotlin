@@ -7,6 +7,7 @@ tags
 .DS_Store
 *.log
 *.orig
+regiter-mgm
 
 # Created by .ignore support plugin (hsz.mobi)
 
@@ -84,3 +85,9 @@ workspace/**
 
 # ingore temporary data files
 *.dat
+
+register-mgm/*.json
+register-mgm/*.pem
+register-mgm/*.csr
+register-mgm/*.pfx
+register-mgm/register-member/**
