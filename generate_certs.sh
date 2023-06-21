@@ -9,6 +9,7 @@ API_URL="https://$RPC_HOST:$RPC_PORT/api/v1"
 WORK_DIR=./register-mgm
 mkdir -p "$WORK_DIR"
 RUNTIME_OS=../../../corda5/corda-runtime-os
+PLATFORM_VERSION="Iguana1.0"
 
 echo "\n---Create a mock CA and signing keys---"
 cd "$WORK_DIR"
@@ -269,5 +270,11 @@ openssl pkcs12 -export -in import.pem -inkey signingkey.key.pem -passin file:pas
 #cp signingkeys.pfx signingkeys2.pfx
 keytool -importcert -keystore signingkeys.pfx -storetype pkcs12 -storepass "keystore password" -noprompt -alias ca -file ~/myCA/intermediateCA/certs/ca-chain.cert.pem
 keytool -importcert -keystore signingkeys.pfx -storepass "keystore password" -noprompt -alias gradle-plugin-default-key -file gradle-plugin-default-key.pem
-keytool -importcert -keystore signingkeys.pfx -storepass "keystore password" -noprompt -alias r3-beta-ca -file beta-r3.pem
-#keytool -importcert -keystore signingkeys2.pfx -storepass "keystore password" -noprompt -alias gradle-plugin-default-key -file gradle-plugin-default-key.pem
+
+if [ "$PLATFORM_VERSION" == "Hawk-1.0.1" ]; then
+ # HAWK
+ keytool -importcert -keystore signingkeys.pfx -storepass "keystore password" -noprompt -alias r3-ca -file beta-r3.pem
+else
+ # IGUANA
+ keytool -importcert -keystore signingkeys.pfx -storepass "keystore password" -noprompt -alias r3-ca -file ../config/r3-ca-key.pem
+fi

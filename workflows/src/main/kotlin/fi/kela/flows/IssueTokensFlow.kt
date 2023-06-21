@@ -30,6 +30,7 @@ import org.slf4j.LoggerFactory
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import java.util.stream.Collectors
 
 class IssueTokensRequest (val amount: Int, val newOwner: String)
 
@@ -122,16 +123,27 @@ class IssueTokensFlow : ClientStartableFlow {
                 tokenClaim.claimedTokens.forEach{it -> log.info("claimed ${it}")}
                 val totalAmount = tokenClaim.claimedTokens.stream().map{ it -> it.amount }.reduce(BigDecimal.ZERO, BigDecimal::add);
                 log.warn("total $totalAmount")
-                val token = existingTokens.first{it -> it.state.contractState.symbol === "HNT"}
+                //val token = existingTokens.first{it -> it.state.contractState.symbol === "HNT"}
                 /** Create a new state with the issuance amount */
-                val output = token.state.contractState.add(BigDecimal(amount))
+                //val output = token.state.contractState.add(BigDecimal(amount))
+                val output = Token(
+                    symbol = "HNT",
+                    currency= "EUR",
+                    value = totalAmount.add(BigDecimal(amount)),
+                    nominalValue = BigDecimal.valueOf(1),
+                    issuer = issuerHash,
+                    participants = listOf(issuer.ledgerKeys.first(), ourIdentity.ledgerKeys.first()),
+                    ownerHash = newOwner?.toSecureHash()
+                )
+                log.warn("output(new state) $output")
                 val issuance: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
                     .setNotary(notary.name)
-                    .addInputState(token.ref)
-                    .addOutputStates(output)
+                    .addInputStates(tokenClaim.claimedTokens.stream().map{it -> it.stateRef}.collect(Collectors.toList()))
+                    //.addInputState(token.ref)
+                    .addOutputStates(listOf(output))
                     .addCommand(TokenContract.Issue())
                     .setTimeWindowBetween(Instant.now(), Instant.now().plus(1, ChronoUnit.DAYS))
-                    .addSignatories(ourIdentity.ledgerKeys.first(), newOwnerNode.ledgerKeys.first())
+                    .addSignatories(newOwnerNode.ledgerKeys.first())
                 log.warn("--- Created issuance: $issuance ---")
                 val signedIssuance = issuance.toSignedTransaction();
                 log.warn("issuance signed");

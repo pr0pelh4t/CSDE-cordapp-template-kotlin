@@ -28,8 +28,8 @@ class Token (
     /**
      * Helper method for transferring token ownership
      */
-    fun transfer(newOwner: SecureHash, newParticipants: List<PublicKey>): Token {
-        return Token(value = value, nominalValue = nominalValue, currency = currency, issuer = issuer, symbol = symbol,ownerHash = newOwner, participants = newParticipants)
+    fun transfer(newOwner: SecureHash, newParticipants: List<PublicKey>, transferValue: BigDecimal = value): Token {
+        return Token(value = transferValue, nominalValue = nominalValue, currency = currency, issuer = issuer, symbol = symbol, ownerHash = newOwner, participants = newParticipants)
     }
 
     /**

@@ -8,15 +8,19 @@ P2P_GATEWAY_PORT=8080
 API_URL="https://$RPC_HOST:$RPC_PORT/api/v1"
 WORK_DIR=./register-mgm
 RUNTIME_OS=../../corda-runtime-os
+PLATFORM_VERSION="Iguana1.0"
 
 
 echo "\n---Build and upload Notary CPI---"
 cd $WORK_DIR
 WORK_DIR_ABS=$PWD
-curl --insecure -u admin:admin -X PUT -F certificate=@beta-r3.pem -F alias=beta-r3 $API_URL/certificates/cluster/code-signer
+
+keytool -exportcert -alias r3-ca -rfc -keystore signingkeys.pfx -storepass "keystore password" > r3-ca.pem
+curl --insecure -u admin:admin -X PUT -F certificate=@r3-ca.pem -F alias=r3-ca $API_URL/certificates/cluster/code-signer
 
 rm -f notary.cpb
-cp ./notary-plugin-non-validating-server-5.0.0.0-Hawk1.0.1-package.cpb ./register-member/notary.cpb
+cp ~/.corda/corda5/notaryserver/notary-plugin-non-validating-server-5.0.0.0-$PLATFORM_VERSION-package.cpb ./register-member/notary.cpb
+#cp ./notary-plugin-non-validating-server-5.0.0.0-Hawk1.0.1-package.cpb ./register-member/notary.cpb
 cd "$WORK_DIR_ABS/register-member/"
 ##Run this command to turn a CPB into a CPI
 rm -f notary.cpi

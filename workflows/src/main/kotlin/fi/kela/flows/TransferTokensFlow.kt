@@ -19,6 +19,7 @@ import net.corda.v5.application.flows.*
 import net.corda.v5.application.messaging.FlowMessaging
 import net.corda.v5.application.messaging.FlowSession
 import net.corda.v5.base.annotations.Suspendable
+import net.corda.v5.crypto.SecureHash
 import net.corda.v5.ledger.common.NotaryLookup
 import net.corda.v5.ledger.utxo.FinalizationResult
 import net.corda.v5.ledger.utxo.StateAndRef
@@ -120,7 +121,8 @@ class TransferTokensFlow : ClientStartableFlow {
                 var spentCoins = listOf<StateRef>()
 
                 try{
-                    spentCoins = transfer(tokenClaim.claimedTokens, reqBody.amount, receiverNode, notary.name, listOf(receiverNode.ledgerKeys.first()))
+                    spentCoins = transfer(tokenClaim.claimedTokens, reqBody.amount, issuer, receiverNode, issuerHash, notary.name, listOf(receiverNode.ledgerKeys.first()))
+
                 }catch(e:Exception){
                     log.warn("Error", e);
                 }
@@ -135,7 +137,8 @@ class TransferTokensFlow : ClientStartableFlow {
                 val to = reqBody.to;
                 val from = reqBody.from;
 
-                val fromNode = memberLookup.lookup(from);
+                val fromNode =
+                    memberLookup.lookup(from) ?: throw CordaRuntimeException("Unable to determine sender node");
                 val receiverNode = memberLookup.lookup(to);
                 val symbol = reqBody.symbol;
                 val ourIdentity = memberLookup.myInfo()
@@ -173,7 +176,7 @@ class TransferTokensFlow : ClientStartableFlow {
                 var spentCoins = listOf<StateRef>()
 
                 try{
-                    spentCoins = transfer(tokenClaim.claimedTokens, reqBody.amount, receiverNode, notary.name, listOf( ourIdentity.ledgerKeys.first(), receiverNode.ledgerKeys.first()))
+                    spentCoins = transfer(tokenClaim.claimedTokens, reqBody.amount, fromNode, receiverNode, issuerHash, notary.name, listOf( ourIdentity.ledgerKeys.first(), receiverNode.ledgerKeys.first()))
 
                 }catch(e:Exception){
                     log.warn("Error", e);
@@ -189,7 +192,7 @@ class TransferTokensFlow : ClientStartableFlow {
 
     @Suspendable
     //private fun transfer(claimedTokens: List<ClaimedToken>, receiverAccount: String, otherNode: MemberInfo, notary: MemberX500Name, newParticipants: List<PublicKey>): List<StateRef>{
-    private fun transfer(claimedTokens: List<ClaimedToken>, amount:Int, otherNode: MemberInfo, notary: MemberX500Name, newParticipants: List<PublicKey>): List<StateRef>{
+    private fun transfer(claimedTokens: List<ClaimedToken>, amount:Int, senderNode: MemberInfo, receiverNode: MemberInfo, issuerHash: SecureHash, notary: MemberX500Name, newParticipants: List<PublicKey>): List<StateRef>{
 
         log.info("in transfer fun")
         val output = mutableListOf<StateRef>();
@@ -203,17 +206,27 @@ class TransferTokensFlow : ClientStartableFlow {
         claimedTokens.forEach { it ->
             log.info("token, $it");
             val inputState:StateRef = it.stateRef
-            val amount = it.amount
+            //val amount = it.amount
             val ipt: StateAndRef<Token> = ledgerService.resolve(inputState)
             /** Construct output (new) state of the token */
             //val outputState: Token = ipt.state.contractState.transfer( newOwner = toSecureHash(receiverAccount, digestService), newParticipants = newParticipants)
-            val newState: Token = ipt.state.contractState.transfer( newOwner = toSecureHash(otherNode.name, digestService), newParticipants = listOf(otherNode.ledgerKeys.first()))
+            val newState: Token = ipt.state.contractState.transfer( newOwner = toSecureHash(receiverNode.name, digestService), newParticipants = listOf(receiverNode.ledgerKeys.first()), transferValue = BigDecimal(amount))
+            log.info("*** newState $newState ***")
             tokenOutputStates.add(newState);
         }
 
         if(change.compareTo(BigDecimal.ZERO) >0 ){
             // if there is remaining change, create a new gold state representing the original sender and the change
-
+            val changeState = Token(
+                symbol = "HNT",
+                currency = "EUR",
+                value = change,
+                nominalValue = BigDecimal(1),
+                participants = listOf(senderNode.ledgerKeys.first()),
+                issuer = issuerHash,
+                ownerHash = toSecureHash(senderNode.name, digestService)
+            )
+            tokenOutputStates.add(changeState);
         }
 
         val txBuilder2: UtxoTransactionBuilder = ledgerService.createTransactionBuilder()
@@ -227,7 +240,7 @@ class TransferTokensFlow : ClientStartableFlow {
             .addSignatories(newParticipants)
 
             val stx1 = txBuilder2.toSignedTransaction();
-            flowEngine.subFlow(UpdateTokenFlow(stx1,  otherNode));
+            flowEngine.subFlow(UpdateTokenFlow(stx1,  receiverNode));
         output.addAll(claimedTokens.map{it -> it.stateRef})
         //}
 
